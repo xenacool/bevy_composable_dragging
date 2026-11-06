@@ -190,6 +190,21 @@ impl<S> ViewNode<S> {
         self.drag = Some(Arc::new(spec));
         self
     }
+
+    /// The same node for another state type. A drag spec of one state type cannot drive another,
+    /// so the new node is not draggable.
+    fn rebind<U>(&self) -> ViewNode<U> {
+        ViewNode {
+            id: self.id.clone(),
+            parent: self.parent.clone(),
+            transform: self.transform,
+            color: self.color,
+            #[cfg(any(feature = "shapes-2d", feature = "shapes-3d"))]
+            style: self.style.clone(),
+            shape: self.shape,
+            drag: None,
+        }
+    }
 }
 
 /// A flat collection of [`ViewNode`]s describing one state of the interface.
@@ -221,6 +236,16 @@ impl<S> View<S> {
     /// Adds `node` to the view.
     pub fn push(&mut self, node: ViewNode<S>) {
         self.nodes.push(node);
+    }
+
+    /// The same scene for another state type, as when a spec for part of a state previews the
+    /// whole (see [`substate`](crate::ops::substate)). Drag specs cannot be carried over, so the
+    /// nodes of the new view are not draggable.
+    #[must_use]
+    pub fn rebind<U>(&self) -> View<U> {
+        View {
+            nodes: self.nodes.iter().map(ViewNode::rebind).collect(),
+        }
     }
 
     /// The nodes of the view, in insertion order.

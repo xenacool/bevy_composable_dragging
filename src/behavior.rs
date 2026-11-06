@@ -4,6 +4,7 @@ use std::sync::Arc;
 
 use bevy::math::Vec2;
 
+use crate::spec::DragSpec;
 use crate::view::{NodeId, View};
 
 /// Builds the [`View`] of a state. This is the pure `state -> view` function of an interface.
@@ -27,6 +28,76 @@ pub struct Frame<S> {
     pub branch: u64,
     /// How long, in seconds, to blend when `branch` changes. `None` uses the model's default.
     pub branch_transition: Option<f32>,
+    /// How long, in seconds, the animation after a drop takes. `None` uses the model's default
+    /// (see [`with_drop_transition`](crate::DragSpec::with_drop_transition)).
+    pub drop_transition: Option<f32>,
+    /// Asks the engine to continue the drag from `drop_state` right now (see
+    /// [`with_chaining`](crate::DragSpec::with_chaining)).
+    pub chain: Option<Chaining<S>>,
+}
+
+/// How a drag continues from the state it has just switched to.
+///
+/// Build it with [`Chaining::new`] and refine it with the `with_*` methods.
+#[non_exhaustive]
+pub struct Chaining<S> {
+    /// The node to keep dragging. `None` keeps the node that is being dragged.
+    pub dragged: Option<NodeId>,
+    /// The spec to continue with. `None` uses the spec attached to the dragged node in the new
+    /// state.
+    pub follow: Option<DragSpec<S>>,
+    /// How long, in seconds, the preview blends into the continued drag. `None` uses the model's
+    /// default; zero switches instantly.
+    pub transition: Option<f32>,
+}
+
+impl<S> Clone for Chaining<S> {
+    fn clone(&self) -> Self {
+        Self {
+            dragged: self.dragged.clone(),
+            follow: self.follow.clone(),
+            transition: self.transition,
+        }
+    }
+}
+
+impl<S> Default for Chaining<S> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl<S> Chaining<S> {
+    /// Continues with the same node and the spec attached to it in the new state.
+    #[must_use]
+    pub fn new() -> Self {
+        Self {
+            dragged: None,
+            follow: None,
+            transition: None,
+        }
+    }
+
+    /// Continues the drag with the node `dragged` of the new state.
+    #[must_use]
+    pub fn dragging(mut self, dragged: impl Into<NodeId>) -> Self {
+        self.dragged = Some(dragged.into());
+        self
+    }
+
+    /// Continues the drag with `spec` instead of the spec attached to the node.
+    #[must_use]
+    pub fn following(mut self, spec: DragSpec<S>) -> Self {
+        self.follow = Some(spec);
+        self
+    }
+
+    /// Sets how long, in seconds, the preview blends into the continued drag.
+    #[must_use]
+    pub fn with_transition(mut self, seconds: f32) -> Self {
+        self.transition = Some(seconds);
+        self
+    }
 }
 
 impl<S> Frame<S> {
@@ -38,6 +109,8 @@ impl<S> Frame<S> {
             gap,
             branch: 0,
             branch_transition: None,
+            drop_transition: None,
+            chain: None,
         }
     }
 
@@ -67,6 +140,17 @@ pub struct DragContext<S> {
     grab_offset: Vec2,
 }
 
+impl<S: Clone> Clone for DragContext<S> {
+    fn clone(&self) -> Self {
+        Self {
+            view_fn: Arc::clone(&self.view_fn),
+            dragged: self.dragged.clone(),
+            start_state: self.start_state.clone(),
+            grab_offset: self.grab_offset,
+        }
+    }
+}
+
 impl<S> DragContext<S> {
     /// Creates the context for dragging the node `dragged` out of `start_state`.
     pub fn new(view_fn: ViewFn<S>, dragged: NodeId, start_state: S) -> Self {
@@ -82,6 +166,20 @@ impl<S> DragContext<S> {
     #[must_use]
     pub fn with_grab_offset(mut self, grab_offset: Vec2) -> Self {
         self.grab_offset = grab_offset;
+        self
+    }
+
+    /// Sets the id of the node being dragged.
+    #[must_use]
+    pub fn with_dragged(mut self, dragged: impl Into<NodeId>) -> Self {
+        self.dragged = dragged.into();
+        self
+    }
+
+    /// Sets the state the drag started from.
+    #[must_use]
+    pub fn with_start_state(mut self, start_state: S) -> Self {
+        self.start_state = start_state;
         self
     }
 

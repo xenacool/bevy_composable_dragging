@@ -24,7 +24,7 @@ mod spec;
 mod transition;
 mod view;
 
-pub use behavior::{DragBehavior, DragContext, Frame, ViewFn};
+pub use behavior::{Chaining, DragBehavior, DragContext, Frame, ViewFn};
 pub use constraint::Constraint;
 #[cfg(feature = "pbr")]
 pub use input::DragPlane;

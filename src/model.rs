@@ -6,7 +6,7 @@ use bevy::ecs::entity::Entity;
 use bevy::ecs::resource::Resource;
 use bevy::math::Vec2;
 
-use crate::behavior::{DragBehavior, DragContext, ViewFn};
+use crate::behavior::{DragBehavior, DragContext, Frame, ViewFn};
 use crate::transition::{DEFAULT_DURATION, Transition};
 use crate::view::{NodeId, View};
 
@@ -18,6 +18,9 @@ struct PendingDrag {
     pointer: Vec2,
 }
 
+/// How many times one pointer position may chain into a new drag before the engine stops.
+const MAX_CHAINS: usize = 16;
+
 /// A drag in progress.
 #[cfg_attr(not(feature = "pbr"), allow(dead_code))]
 struct Session<S> {
@@ -26,6 +29,8 @@ struct Session<S> {
     behavior: DragBehavior<S>,
     grab_offset: Vec2,
     drop_state: S,
+    /// How long the animation after a drop takes; `None` uses the model's default.
+    drop_transition: Option<f32>,
     /// The branch of the last frame.
     branch: Option<u64>,
     /// A running blend after the branch changed; its target is the latest frame's view.
@@ -189,6 +194,7 @@ impl<S: Clone + Send + Sync + 'static> DragModel<S> {
             behavior,
             grab_offset,
             drop_state: self.state.clone(),
+            drop_transition: None,
             branch: None,
             blend: None,
         });
@@ -207,12 +213,20 @@ impl<S: Clone + Send + Sync + 'static> DragModel<S> {
         let Some(session) = self.session.as_mut() else {
             return;
         };
-        let frame = (session.behavior)(pointer - session.grab_offset);
+        let first = (session.behavior)(pointer - session.grab_offset);
+        let Chained {
+            frame,
+            followed,
+            transition: chain_transition,
+        } = follow_chains(&self.view_fn, session, &mut self.state, pointer, first);
         session.drop_state = frame.drop_state;
-        let switched = session.branch.is_some_and(|branch| branch != frame.branch);
+        session.drop_transition = frame.drop_transition;
+        let switched = followed || session.branch.is_some_and(|branch| branch != frame.branch);
         session.branch = Some(frame.branch);
         if switched {
-            let duration = frame.branch_transition.unwrap_or(self.transition_duration);
+            let duration = chain_transition
+                .or(frame.branch_transition)
+                .unwrap_or(self.transition_duration);
             session.blend = (duration > 0.0)
                 .then(|| Transition::new(self.shown.clone(), frame.view.clone(), duration));
         } else if let Some(blend) = session.blend.as_mut() {
@@ -231,13 +245,67 @@ impl<S: Clone + Send + Sync + 'static> DragModel<S> {
         if let Some(session) = self.session.take() {
             self.state = session.drop_state;
             let target = (self.view_fn)(&self.state);
-            if self.transition_duration > 0.0 {
+            let duration = session
+                .drop_transition
+                .map_or(self.transition_duration, |seconds| seconds.max(0.0));
+            if duration > 0.0 {
                 let from = self.shown.clone();
-                self.transition = Some(Transition::new(from, target, self.transition_duration));
+                self.transition = Some(Transition::new(from, target, duration));
             } else {
                 self.shown = target;
             }
         }
+    }
+}
+
+/// The outcome of [`follow_chains`].
+struct Chained<S> {
+    /// The frame to show.
+    frame: Frame<S>,
+    /// Whether the drag chained into a new one.
+    followed: bool,
+    /// The blend time the last chaining asked for.
+    transition: Option<f32>,
+}
+
+/// Continues the drag from the state of every frame that asks for chaining: the state becomes
+/// the new start state and the session carries on with the chosen node and spec. A request that
+/// cannot be followed, because the node or its spec is missing, is dropped.
+fn follow_chains<S: Clone + Send + Sync + 'static>(
+    view_fn: &ViewFn<S>,
+    session: &mut Session<S>,
+    state: &mut S,
+    pointer: Vec2,
+    mut frame: Frame<S>,
+) -> Chained<S> {
+    let mut followed = false;
+    let mut transition = None;
+    for _ in 0..MAX_CHAINS {
+        let Some(chain) = frame.chain.take() else {
+            break;
+        };
+        let new_state = frame.drop_state.clone();
+        let node = chain.dragged.unwrap_or_else(|| session.node.clone());
+        let view = view_fn(&new_state);
+        let Some(spec) = chain
+            .follow
+            .or_else(|| view.get(&node)?.drag.as_ref().map(|factory| factory()))
+        else {
+            break;
+        };
+        let context = DragContext::new(Arc::clone(view_fn), node.clone(), new_state.clone())
+            .with_grab_offset(session.grab_offset);
+        session.behavior = spec.compile(&context);
+        session.node = node;
+        *state = new_state;
+        followed = true;
+        transition = chain.transition;
+        frame = (session.behavior)(pointer - session.grab_offset);
+    }
+    Chained {
+        frame,
+        followed,
+        transition,
     }
 }
 
@@ -410,6 +478,54 @@ mod tests {
         model.advance_transition(1.0);
         assert!(!model.is_transitioning());
         assert!((bystander(&model) + 100.0).abs() < 1e-3);
+    }
+
+    /// A walker on cells 100 apart that can move one cell per drag step.
+    #[derive(Clone, Copy, PartialEq, Debug)]
+    struct Walker(i32);
+
+    fn walker_view(walker: Walker) -> View<Walker> {
+        let step = move |delta: i32| Walker((walker.0 + delta).clamp(0, 3));
+        View::new().with(
+            ViewNode::circle("walker", 10.0)
+                .at(Vec2::new(walker.0 as f32 * 100.0, 0.0))
+                .draggable(move || {
+                    closest_states([step(-1), step(0), step(1)])
+                        .with_chaining()
+                        .with_drop_transition(0.0)
+                }),
+        )
+    }
+
+    #[test]
+    fn chaining_walks_across_several_states_in_one_drag() {
+        let mut model = DragModel::new(Walker(0), |walker| walker_view(*walker));
+        model.press("walker", Entity::PLACEHOLDER, Vec2::ZERO);
+        model.start_drag();
+        model.drive(Vec2::new(240.0, 0.0));
+        assert!(model.is_dragging());
+        assert_eq!(*model.state(), Walker(2), "each chained state is committed");
+        assert!(
+            model.is_transitioning(),
+            "the preview blends into the chain"
+        );
+
+        model.drop_drag();
+        assert_eq!(*model.state(), Walker(2));
+    }
+
+    #[test]
+    fn a_spec_chooses_its_own_drop_duration() {
+        let mut model = DragModel::new(Walker(0), |walker| walker_view(*walker));
+        model.press("walker", Entity::PLACEHOLDER, Vec2::ZERO);
+        model.start_drag();
+        model.drive(Vec2::new(90.0, 0.0));
+        model.drop_drag();
+        assert_eq!(*model.state(), Walker(1));
+        assert!(
+            !model.is_transitioning(),
+            "a zero drop transition is instant"
+        );
     }
 
     #[test]

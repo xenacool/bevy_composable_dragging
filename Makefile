@@ -1,7 +1,7 @@
-EXAMPLES = hello toggle three_way reorder_list ring_of_beads slider clock scheduler lists_in_lists tessellations gradient_hanoi_3d gradient_kanban_2d
+EXAMPLES = hello toggle three_way reorder_list ring_of_beads slider clock scheduler lists_in_lists tessellations chain_of_cells blend_square gradient_hanoi_3d gradient_kanban_2d
 
 # Examples that produce animated WebP (all except hello, which is a still WebP)
-ANIMATIONS = toggle three_way reorder_list ring_of_beads slider clock scheduler lists_in_lists tessellations gradient_hanoi_3d gradient_kanban_2d
+ANIMATIONS = toggle three_way reorder_list ring_of_beads slider clock scheduler lists_in_lists tessellations chain_of_cells blend_square gradient_hanoi_3d gradient_kanban_2d
 
 .PHONY: $(EXAMPLES) all-examples screenshots clean
 
@@ -37,6 +37,12 @@ lists_in_lists:
 
 tessellations:
 	cargo run --example tessellations --features pbr
+
+chain_of_cells:
+	cargo run --example chain_of_cells --features pbr
+
+blend_square:
+	cargo run --example blend_square --features pbr
 
 gradient_hanoi_3d:
 	cargo run --example gradient_hanoi_3d --features shapes-3d
@@ -104,6 +110,10 @@ screenshots:
 	$(call capture_animation,lists_in_lists,pbr)
 	@echo ""
 	$(call capture_animation,tessellations,pbr)
+	@echo ""
+	$(call capture_animation,chain_of_cells,pbr)
+	@echo ""
+	$(call capture_animation,blend_square,pbr)
 	@echo ""
 	$(call capture_animation,gradient_hanoi_3d,shapes-3d)
 	@echo ""

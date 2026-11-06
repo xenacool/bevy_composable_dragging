@@ -9,14 +9,38 @@ use crate::view::NodeId;
 /// The gap is zero while the pointer is inside the target and infinite outside, so inside
 /// [`closest`](super::closest) the target wins whenever the pointer is over it. The target's
 /// bounds are taken from the state the drag started in, which keeps them stable even when
-/// dropping removes or moves the target.
+/// dropping removes or moves the target. Dragology measures them in `state` instead; see
+/// [`drop_target_with_bounds`] for that.
 pub fn drop_target<S: Clone + Send + Sync + 'static>(
     target: impl Into<NodeId>,
     state: S,
 ) -> DragSpec<S> {
+    drop_target_measured(target, state, None)
+}
+
+/// Like [`drop_target`], but the bounds of `target` are measured in the view of `bounds_state`.
+/// Passing `state` itself gives Dragology's default; another state helps when the target moves
+/// or vanishes in `state`.
+pub fn drop_target_with_bounds<S: Clone + Send + Sync + 'static>(
+    target: impl Into<NodeId>,
+    state: S,
+    bounds_state: S,
+) -> DragSpec<S> {
+    drop_target_measured(target, state, Some(bounds_state))
+}
+
+fn drop_target_measured<S: Clone + Send + Sync + 'static>(
+    target: impl Into<NodeId>,
+    state: S,
+    bounds_state: Option<S>,
+) -> DragSpec<S> {
     let target: NodeId = target.into();
     DragSpec::new(move |context| {
-        let bounds = context.render(context.start_state());
+        let bounds = context.render(
+            bounds_state
+                .as_ref()
+                .unwrap_or_else(|| context.start_state()),
+        );
         let view = context.render(&state);
         let state = state.clone();
         let target = target.clone();
@@ -53,6 +77,26 @@ mod tests {
         let mut behavior = drop_target("bin", Slot(2)).compile(&context);
         assert_eq!(behavior(Vec2::new(95.0, 0.0)).gap, 0.0);
         assert!(behavior(Vec2::new(101.0, 0.0)).gap.is_infinite());
+    }
+
+    #[test]
+    fn the_bounds_can_be_measured_in_another_state() {
+        use crate::behavior::DragContext;
+        use crate::view::{View, ViewNode};
+        // The bin sits at x = 100 in slot 0 and has moved to x = 200 in slot 2.
+        let view = |slot: &Slot| {
+            let x = if slot.0 == 2 { 200.0 } else { 100.0 };
+            View::new()
+                .with(ViewNode::circle("item", 1.0))
+                .with(ViewNode::rectangle("bin", Vec2::new(20.0, 20.0)).at(Vec2::new(x, 0.0)))
+        };
+        let context = DragContext::new(std::sync::Arc::new(view), "item".into(), Slot(0));
+        let mut at_start = drop_target("bin", Slot(2)).compile(&context);
+        assert_eq!(at_start(Vec2::new(100.0, 0.0)).gap, 0.0);
+        let mut in_target_state =
+            drop_target_with_bounds("bin", Slot(2), Slot(2)).compile(&context);
+        assert_eq!(in_target_state(Vec2::new(200.0, 0.0)).gap, 0.0);
+        assert!(in_target_state(Vec2::new(100.0, 0.0)).gap.is_infinite());
     }
 
     #[test]

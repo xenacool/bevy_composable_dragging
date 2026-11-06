@@ -1,8 +1,47 @@
 //! The `closest` operator.
 
-use crate::behavior::Frame;
+use bevy::math::Vec2;
+
+use crate::behavior::{DragBehavior, DragContext, Frame};
 use crate::ops::state;
 use crate::spec::DragSpec;
+
+/// Options of [`closest_with_options`]. The defaults match [`closest`].
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+#[non_exhaustive]
+pub struct ClosestOptions {
+    /// The branch that is currently shown is kept until another branch is nearer to the pointer
+    /// by more than this many world units.
+    pub stickiness: f32,
+    /// Once the shown branch has carried the dragged node more than this many world units from
+    /// where it started, `closest` locks onto that branch and ignores the others until the node
+    /// is back within this distance. Use it for branches that all start from the current state,
+    /// such as one [`between`](crate::ops::between) per target, so a drag heading towards one
+    /// target cannot jump partway onto another. `None` never locks.
+    pub lock_past: Option<f32>,
+}
+
+impl ClosestOptions {
+    /// The defaults: no stickiness and no locking.
+    #[must_use]
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Sets [`stickiness`](Self::stickiness).
+    #[must_use]
+    pub fn with_stickiness(mut self, stickiness: f32) -> Self {
+        self.stickiness = stickiness;
+        self
+    }
+
+    /// Sets [`lock_past`](Self::lock_past).
+    #[must_use]
+    pub fn with_lock_past(mut self, distance: f32) -> Self {
+        self.lock_past = Some(distance);
+        self
+    }
+}
 
 /// Shows the branch whose preview puts the dragged node nearest to the pointer.
 ///
@@ -22,6 +61,14 @@ pub fn closest_with_stickiness<S: Clone + Send + Sync + 'static>(
     branches: impl IntoIterator<Item = DragSpec<S>>,
     stickiness: f32,
 ) -> DragSpec<S> {
+    closest_with_options(branches, ClosestOptions::new().with_stickiness(stickiness))
+}
+
+/// Like [`closest`], with the stickiness and branch locking of [`ClosestOptions`].
+pub fn closest_with_options<S: Clone + Send + Sync + 'static>(
+    branches: impl IntoIterator<Item = DragSpec<S>>,
+    options: ClosestOptions,
+) -> DragSpec<S> {
     let branches: Vec<DragSpec<S>> = branches.into_iter().collect();
     DragSpec::new(move |context| {
         let mut behaviors: Vec<_> = branches
@@ -33,18 +80,71 @@ pub fn closest_with_stickiness<S: Clone + Send + Sync + 'static>(
             let view = context.render(&start);
             return Box::new(move |_| Frame::new(view.clone(), start.clone(), f32::INFINITY));
         }
+        let lock = options.lock_past.and_then(|distance| {
+            let home = context.anchor_in(&context.render(context.start_state()))?;
+            Some(Lock {
+                context: context.clone(),
+                home,
+                distance,
+            })
+        });
         let mut current = None;
+        let mut locked: Option<usize> = None;
         Box::new(move |pointer| {
-            let mut frames: Vec<Frame<S>> = behaviors
-                .iter_mut()
-                .map(|behavior| behavior(pointer))
-                .collect();
-            let gaps: Vec<f32> = frames.iter().map(|frame| frame.gap).collect();
-            let chosen = select_branch(&gaps, current, stickiness);
+            let mut frames: Vec<Option<Frame<S>>> = behaviors.iter().map(|_| None).collect();
+            let is_past = |frame: &Frame<S>| lock.as_ref().is_some_and(|lock| lock.is_past(frame));
+            if let Some(index) = locked
+                && !is_past(run(&mut frames, &mut behaviors, index, pointer))
+            {
+                locked = None;
+            }
+            let chosen = if let Some(index) = locked {
+                index
+            } else {
+                let gaps: Vec<f32> = (0..behaviors.len())
+                    .map(|index| run(&mut frames, &mut behaviors, index, pointer).gap)
+                    .collect();
+                let chosen = select_branch(&gaps, current, options.stickiness);
+                if is_past(run(&mut frames, &mut behaviors, chosen, pointer)) {
+                    locked = Some(chosen);
+                }
+                chosen
+            };
             current = Some(chosen);
-            frames.swap_remove(chosen).in_branch(chosen)
+            run(&mut frames, &mut behaviors, chosen, pointer);
+            frames
+                .swap_remove(chosen)
+                .expect("the chosen branch ran")
+                .in_branch(chosen)
         })
     })
+}
+
+/// Where the dragged node started, for [`ClosestOptions::lock_past`].
+struct Lock<S> {
+    context: DragContext<S>,
+    home: Vec2,
+    distance: f32,
+}
+
+impl<S> Lock<S> {
+    /// Whether `frame` has carried the dragged node out of the lock radius. A preview without the
+    /// node counts as far away.
+    fn is_past(&self, frame: &Frame<S>) -> bool {
+        self.context
+            .anchor_in(&frame.view)
+            .is_none_or(|anchor| anchor.distance(self.home) > self.distance)
+    }
+}
+
+/// The frame of branch `index` for `pointer`, running the branch only the first time.
+fn run<'a, S>(
+    frames: &'a mut [Option<Frame<S>>],
+    behaviors: &mut [DragBehavior<S>],
+    index: usize,
+    pointer: Vec2,
+) -> &'a Frame<S> {
+    frames[index].get_or_insert_with(|| behaviors[index](pointer))
 }
 
 /// Like [`closest`] for plain states: each state is a [`state`] branch.
@@ -54,26 +154,122 @@ pub fn closest_states<S: Clone + Send + Sync + 'static>(
     closest(states.into_iter().map(state))
 }
 
-/// Picks the index of the branch to show: the one with the smallest gap, unless the `current`
-/// branch is within `stickiness` of it.
+/// Picks the index of the branch to show: the one with the smallest gap, where the `current`
+/// branch counts `stickiness` smaller. Ties go to the first branch.
 pub(crate) fn select_branch(gaps: &[f32], current: Option<usize>, stickiness: f32) -> usize {
-    let nearest = gaps
-        .iter()
+    gaps.iter()
+        .enumerate()
+        .map(|(index, gap)| {
+            gap - if Some(index) == current {
+                stickiness
+            } else {
+                0.0
+            }
+        })
         .enumerate()
         .min_by(|(_, a), (_, b)| a.total_cmp(b))
-        .map_or(0, |(index, _)| index);
-    match current {
-        Some(current) if gaps[current] <= gaps[nearest] + stickiness => current,
-        _ => nearest,
-    }
+        .map_or(0, |(index, _)| index)
 }
 
 #[cfg(test)]
 mod tests {
-    use bevy::math::Vec2;
-
     use super::*;
+    use crate::ops::between;
     use crate::ops::testing::{Slot, context};
+
+    /// One branch that blends between slots 0 and 1 and one that jumps to slot 2.
+    fn locking(distance: f32) -> DragSpec<Slot> {
+        closest_with_options(
+            [between([Slot(0), Slot(1)]), state(Slot(2))],
+            ClosestOptions::new().with_lock_past(distance),
+        )
+    }
+
+    #[test]
+    fn lock_past_keeps_the_branch_that_carried_the_node_away() {
+        let mut behavior = locking(5.0).compile(&context());
+        assert_eq!(behavior(Vec2::new(11.0, 0.0)).drop_state, Slot(1));
+        // Slot 2 is nearer now, but the first branch holds the node far from home.
+        assert_eq!(behavior(Vec2::new(19.0, 0.0)).drop_state, Slot(1));
+    }
+
+    #[test]
+    fn lock_past_releases_when_the_node_returns_home() {
+        let mut behavior = locking(5.0).compile(&context());
+        behavior(Vec2::new(11.0, 0.0));
+        assert_eq!(behavior(Vec2::new(3.0, 0.0)).drop_state, Slot(0));
+        assert_eq!(behavior(Vec2::new(19.0, 0.0)).drop_state, Slot(2));
+    }
+
+    #[test]
+    fn without_lock_past_the_nearest_branch_always_wins() {
+        let spec = closest([between([Slot(0), Slot(1)]), state(Slot(2))]);
+        let mut behavior = spec.compile(&context());
+        behavior(Vec2::new(11.0, 0.0));
+        assert_eq!(behavior(Vec2::new(19.0, 0.0)).drop_state, Slot(2));
+    }
+
+    /// A dot at a point of the plane.
+    #[derive(Clone, Debug, PartialEq)]
+    struct Dot(f32, f32);
+
+    fn dot_context() -> DragContext<Dot> {
+        use crate::view::{View, ViewNode};
+        DragContext::new(
+            std::sync::Arc::new(|dot: &Dot| {
+                View::new().with(ViewNode::circle("dot", 5.0).at(Vec2::new(dot.0, dot.1)))
+            }),
+            "dot".into(),
+            Dot(0.0, 0.0),
+        )
+    }
+
+    /// Two spokes out of the start state, to the right and down; this is the setup of the
+    /// `closest lockPast` tests in Dragology.
+    fn spokes(options: ClosestOptions) -> DragSpec<Dot> {
+        closest_with_options(
+            [
+                between([Dot(0.0, 0.0), Dot(100.0, 0.0)]),
+                between([Dot(0.0, 0.0), Dot(0.0, 100.0)]),
+            ],
+            options,
+        )
+    }
+
+    #[test]
+    fn without_lock_past_a_drag_jumps_between_spokes() {
+        let mut behavior = spokes(ClosestOptions::new()).compile(&dot_context());
+        let right = behavior(Vec2::new(60.0, 5.0)).branch;
+        let down = behavior(Vec2::new(40.0, 60.0)).branch;
+        assert_ne!(right, down);
+    }
+
+    #[test]
+    fn with_lock_past_a_drag_stays_on_its_spoke_until_the_dot_returns_home() {
+        let mut behavior =
+            spokes(ClosestOptions::new().with_lock_past(10.0)).compile(&dot_context());
+        let right = behavior(Vec2::new(60.0, 5.0)).branch;
+        // Closer to the other spoke, but still out on this one.
+        assert_eq!(behavior(Vec2::new(40.0, 60.0)).branch, right);
+        // Projects back onto the start of this spoke, so it unlocks.
+        assert_ne!(behavior(Vec2::new(-10.0, 60.0)).branch, right);
+    }
+
+    #[test]
+    fn lock_past_is_free_to_switch_within_its_distance_of_home() {
+        let mut behavior =
+            spokes(ClosestOptions::new().with_lock_past(10.0)).compile(&dot_context());
+        let right = behavior(Vec2::new(6.0, 1.0)).branch;
+        let down = behavior(Vec2::new(1.0, 6.0)).branch;
+        assert_ne!(right, down);
+    }
+
+    #[test]
+    fn the_options_default_to_plain_closest() {
+        let options = ClosestOptions::new();
+        assert_eq!(options.stickiness, 0.0);
+        assert_eq!(options.lock_past, None);
+    }
 
     #[test]
     fn snaps_to_the_state_nearest_the_pointer() {

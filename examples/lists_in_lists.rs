@@ -2,10 +2,11 @@
 //!
 //! `closest` previews the nearest insertion point of every list while the dragged item floats.
 //! `when_far` switches to `vary` once the item is far from every list, so it follows the pointer
-//! freely, and `on_drop_with` rounds its final position to a grid.
+//! freely, and `on_drop_with` rounds its final position to a grid. `with_overlay` marks the
+//! insertion point of the branch that `closest` currently shows.
 
 use bevy::prelude::*;
-use bevy_composable_dragging::ops::{closest_states, vary};
+use bevy_composable_dragging::ops::{closest, state, vary};
 use bevy_composable_dragging::{DragSpec, DraggablePlugin, View, ViewNode, param};
 
 mod common;
@@ -91,17 +92,27 @@ fn item_spec(board: &Board, item: usize) -> DragSpec<Board> {
             param!(Board, free[index].y).with_scale(1.0),
         ],
     );
-    closest_states(placements(board, item))
-        .with_floating()
-        .when_far(free_spec, FAR)
-        .on_drop_with(|board| {
-            let mut board = board.clone();
-            for free in &mut board.free {
-                free.x = (free.x / GRID).round() * GRID;
-                free.y = (free.y / GRID).round() * GRID;
-            }
-            board
-        })
+    closest(placements(board, item).into_iter().map(|placed| {
+        let slot = item_position(&placed, item);
+        state(placed).with_overlay(move |_| vec![insertion_marker(slot)])
+    }))
+    .with_floating()
+    .when_far(free_spec, FAR)
+    .on_drop_with(|board| {
+        let mut board = board.clone();
+        for free in &mut board.free {
+            free.x = (free.x / GRID).round() * GRID;
+            free.y = (free.y / GRID).round() * GRID;
+        }
+        board
+    })
+}
+
+/// A bright bar just above `slot`, drawn over the lists while that slot is the drop target.
+fn insertion_marker(slot: Vec2) -> ViewNode<Board> {
+    ViewNode::rectangle("insertion-marker", Vec2::new(2.2, 0.1))
+        .at(slot + Vec2::new(0.0, SLOT_HEIGHT / 2.0))
+        .with_color(Color::srgb(1.0, 0.85, 0.3))
 }
 
 fn view(board: &Board) -> View<Board> {
@@ -147,7 +158,7 @@ fn main() {
         .add_plugins(
             AutoScreenshotPlugin::new("screenshot_lists_in_lists.webp")
                 .with_title("lists_in_lists")
-                .with_description("closest + when_far")
+                .with_description("closest + when_far + overlay")
                 .animation(600),
         )
         .add_systems(Startup, |mut commands: Commands| {

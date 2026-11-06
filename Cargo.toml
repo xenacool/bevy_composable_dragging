@@ -99,6 +99,16 @@ path = "examples/tessellations.rs"
 required-features = ["pbr"]
 
 [[example]]
+name = "chain_of_cells"
+path = "examples/chain_of_cells.rs"
+required-features = ["pbr"]
+
+[[example]]
+name = "blend_square"
+path = "examples/blend_square.rs"
+required-features = ["pbr"]
+
+[[example]]
 name = "gradient_hanoi_3d"
 path = "examples/gradient_hanoi_3d.rs"
 required-features = ["shapes-3d"]
