@@ -1,0 +1,109 @@
+[package]
+name = "bevy_composable_dragging"
+version = "0.1.0"
+authors = ["Jessica Collins (https://github.com/xenacool)"]
+edition = "2024"
+rust-version = "1.87"
+license = "MIT OR Apache-2.0"
+description = "Declarative, composable dragging for Bevy, ported from Dragology"
+repository = "https://github.com/xenacool/bevy_composable_dragging"
+readme = "README.md"
+exclude = ["screenshots/", "reference/", "target/", "Cargo.lock", "Makefile", "book/"]
+
+[profile.dev]
+codegen-units = 8
+
+# Bevy example binaries exceed the macOS linker's compact unwind table limit; the message is harmless.
+[lints.rust]
+linker_messages = "allow"
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"
+module_name_repetitions = "allow"
+similar_names = "allow"
+too_many_lines = "allow"
+too_many_arguments = "allow"
+# Bevy system parameters (`Res`, `Query`, ...) are always taken by value.
+needless_pass_by_value = "allow"
+# Layout code converts small indices to floats all the time.
+cast_precision_loss = "allow"
+
+[features]
+default = []
+# PBR materials and mesh picking backend for 3D scenes.
+pbr = ["bevy/bevy_pbr", "bevy/mesh_picking"]
+# Gradient shapes from `bevy_gradmesh`, drawn as billboards in a 3D scene.
+shapes-2d = ["dep:bevy_gradmesh", "pbr"]
+# Gradient shapes from `bevy_gradmesh` for 3D scenes.
+shapes-3d = ["dep:bevy_gradmesh", "pbr"]
+
+[dependencies]
+bevy = { version = "0.20", default-features = false, features = ["bevy_color"] }
+bevy_gradmesh = { version = "0.2.0", optional = true }
+
+# Examples need windowing, tonemapping LUT textures and PNG support which the library does not require.
+[dev-dependencies]
+bevy = { version = "0.20", features = ["bevy_pbr", "mesh_picking", "tonemapping_luts", "png"] }
+
+[[example]]
+name = "hello"
+path = "examples/hello.rs"
+required-features = ["pbr"]
+
+[[example]]
+name = "toggle"
+path = "examples/toggle.rs"
+required-features = ["pbr"]
+
+[[example]]
+name = "three_way"
+path = "examples/three_way.rs"
+required-features = ["pbr"]
+
+[[example]]
+name = "reorder_list"
+path = "examples/reorder_list.rs"
+required-features = ["pbr"]
+
+[[example]]
+name = "ring_of_beads"
+path = "examples/ring_of_beads.rs"
+required-features = ["pbr"]
+
+[[example]]
+name = "slider"
+path = "examples/slider.rs"
+required-features = ["pbr"]
+
+[[example]]
+name = "clock"
+path = "examples/clock.rs"
+required-features = ["pbr"]
+
+[[example]]
+name = "scheduler"
+path = "examples/scheduler.rs"
+required-features = ["pbr"]
+
+[[example]]
+name = "lists_in_lists"
+path = "examples/lists_in_lists.rs"
+required-features = ["pbr"]
+
+[[example]]
+name = "tessellations"
+path = "examples/tessellations.rs"
+required-features = ["pbr"]
+
+[[example]]
+name = "gradient_hanoi_3d"
+path = "examples/gradient_hanoi_3d.rs"
+required-features = ["shapes-3d"]
+
+[[example]]
+name = "gradient_kanban_2d"
+path = "examples/gradient_kanban_2d.rs"
+required-features = ["shapes-2d"]
