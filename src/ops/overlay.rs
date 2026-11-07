@@ -64,6 +64,7 @@ fn prefixed(id: &str) -> NodeId {
 
 #[cfg(test)]
 mod tests {
+    use crate::space::Pointer;
     use bevy::math::Vec2;
 
     use crate::ops::testing::{Slot, context};
@@ -75,11 +76,11 @@ mod tests {
         let spec = state(Slot(1)).with_overlay(|frame| {
             vec![
                 ViewNode::circle("mark", 2.0)
-                    .at(Vec2::new(frame.gap, 0.0))
+                    .at_xy(Vec2::new(frame.gap, 0.0))
                     .draggable(|| state(Slot(0))),
             ]
         });
-        let frame = spec.compile(&context())(Vec2::new(10.0, 0.0));
+        let frame = spec.compile(&context())(Pointer::from(Vec2::new(10.0, 0.0)));
         let mark = frame.view.get("overlay-mark").unwrap();
         assert!(mark.drag.is_none());
         assert!(mark.transform.translation.z > 0.5);
@@ -89,7 +90,7 @@ mod tests {
     #[test]
     fn overlay_ids_never_collide_with_the_preview() {
         let spec = state(Slot(1)).with_overlay(|_| vec![ViewNode::circle("item", 2.0)]);
-        let frame = spec.compile(&context())(Vec2::new(10.0, 0.0));
+        let frame = spec.compile(&context())(Pointer::from(Vec2::new(10.0, 0.0)));
         assert!(frame.view.get("overlay-item").is_some());
         assert_eq!(
             frame
@@ -100,7 +101,7 @@ mod tests {
                 .count(),
             1
         );
-        assert!((frame.view.position("item").unwrap().x - 10.0).abs() < 1e-4);
+        assert!((frame.view.world_position("item").unwrap().x - 10.0).abs() < 1e-4);
     }
 
     #[test]
@@ -112,7 +113,7 @@ mod tests {
                 ViewNode::circle("badge", 1.0).with_parent("item"),
             ]
         });
-        let frame = spec.compile(&context())(Vec2::ZERO);
+        let frame = spec.compile(&context())(Pointer::from(Vec2::ZERO));
         let parent = |id: &str| {
             frame
                 .view
@@ -133,11 +134,11 @@ mod tests {
         };
         let spec = closest([marked(0, "left"), marked(1, "right")]);
         let mut behavior = spec.compile(&context());
-        let left = behavior(Vec2::new(0.0, 0.0));
+        let left = behavior(Pointer::from(Vec2::new(0.0, 0.0)));
         assert!(
             left.view.get("overlay-left").is_some() && left.view.get("overlay-right").is_none()
         );
-        let right = behavior(Vec2::new(10.0, 0.0));
+        let right = behavior(Pointer::from(Vec2::new(10.0, 0.0)));
         assert!(
             right.view.get("overlay-right").is_some() && right.view.get("overlay-left").is_none()
         );

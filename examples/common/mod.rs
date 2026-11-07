@@ -4,10 +4,11 @@
 #![allow(dead_code)]
 
 use bevy::camera::ScalingMode;
+use bevy::camera::visibility::RenderLayers;
 use bevy::prelude::*;
 use bevy::render::RenderPlugin;
 
-// Copied verbatim from `bevy_gradmesh`, so its lint findings are allowed instead of edited.
+// Adapted from `bevy_gradmesh`, so its lint findings are allowed instead of edited.
 #[allow(clippy::pedantic, clippy::unnecessary_cast)]
 pub mod screenshot;
 
@@ -31,6 +32,20 @@ pub fn default_plugins(title: &str) -> impl PluginGroup {
         })
 }
 
+/// The render layer of the screenshot title overlay, so its camera never draws the scene.
+pub const OVERLAY_LAYER: usize = 1;
+
+/// The render layer of the HUD, drawn by the camera of [`spawn_hud_camera`] over the scene.
+pub const HUD_LAYER: usize = 2;
+
+/// Marks the camera that draws the scene, as opposed to the one that draws the title overlay.
+#[derive(Component)]
+pub struct SceneCamera;
+
+/// Marks the camera that draws the HUD over the scene.
+#[derive(Component)]
+pub struct HudCamera;
+
 /// Spawns the camera that draws the screenshot title overlay.
 ///
 /// It renders first and has a lower order than the scene camera, so the scene camera wins
@@ -38,6 +53,7 @@ pub fn default_plugins(title: &str) -> impl PluginGroup {
 fn spawn_overlay_camera(commands: &mut Commands) {
     commands.spawn((
         Camera2d,
+        RenderLayers::layer(OVERLAY_LAYER),
         Camera {
             order: -1,
             ..default()
@@ -52,6 +68,7 @@ fn spawn_overlay_camera(commands: &mut Commands) {
 pub fn spawn_cameras(commands: &mut Commands, viewport_height: f32) {
     spawn_overlay_camera(commands);
     commands.spawn((
+        SceneCamera,
         Camera3d::default(),
         Camera {
             clear_color: ClearColorConfig::None,
@@ -65,10 +82,52 @@ pub fn spawn_cameras(commands: &mut Commands, viewport_height: f32) {
     ));
 }
 
+/// Spawns a `Camera2d` that shows `viewport_height` world units vertically, for scenes drawn
+/// with `Rendering::Flat`.
+pub fn spawn_cameras_2d(commands: &mut Commands, viewport_height: f32) {
+    spawn_overlay_camera(commands);
+    commands.spawn((
+        SceneCamera,
+        Camera2d,
+        Camera {
+            clear_color: ClearColorConfig::None,
+            ..default()
+        },
+        Projection::Orthographic(OrthographicProjection {
+            scaling_mode: ScalingMode::FixedVertical { viewport_height },
+            ..OrthographicProjection::default_2d()
+        }),
+    ));
+}
+
+/// Spawns a `Camera2d` that draws the nodes on [`HUD_LAYER`] over the scene, showing
+/// `viewport_height` world units vertically with the origin in the middle of the screen.
+///
+/// It renders after the scene camera without clearing, and its order is higher, so presses on
+/// the HUD win over the scene below. Give the HUD nodes `ViewNode::flat` and
+/// `ViewNode::on_layer(HUD_LAYER)`; the scene camera never draws or picks them.
+pub fn spawn_hud_camera(commands: &mut Commands, viewport_height: f32) {
+    commands.spawn((
+        HudCamera,
+        Camera2d,
+        RenderLayers::layer(HUD_LAYER),
+        Camera {
+            order: 1,
+            clear_color: ClearColorConfig::None,
+            ..default()
+        },
+        Projection::Orthographic(OrthographicProjection {
+            scaling_mode: ScalingMode::FixedVertical { viewport_height },
+            ..OrthographicProjection::default_2d()
+        }),
+    ));
+}
+
 /// Spawns a perspective scene camera at `eye` looking at `target`, and a light for lit materials.
 pub fn spawn_perspective_scene(commands: &mut Commands, eye: Vec3, target: Vec3) {
     spawn_overlay_camera(commands);
     commands.spawn((
+        SceneCamera,
         Camera3d::default(),
         Camera {
             clear_color: ClearColorConfig::None,

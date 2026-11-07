@@ -1,35 +1,42 @@
 //! Turns picking events into drags.
 
+use bevy::camera::visibility::RenderLayers;
 use bevy::picking::events::{PointerDrag, PointerDragEnd, PointerDragStart, PointerPress};
 use bevy::picking::pointer::PointerButton;
 use bevy::prelude::*;
 
 use crate::model::DragModel;
 use crate::render::DragNode;
+use crate::space::DragSpace;
 
-/// The plane that the pointer is projected onto while dragging.
+/// The space that drags happen in when a node does not choose one with
+/// [`ViewNode::draggable_in`](crate::ViewNode::draggable_in): the XY plane at depth `z`.
 ///
-/// Drag specs work with positions in the XY plane at depth `z`. For 2D-style scenes the default
-/// of `z = 0` is what you want; scenes with a perspective camera can move the plane to the depth
-/// of the objects being dragged.
+/// Drag specs work with positions in that plane. For 2D-style scenes the default of `z = 0` is
+/// what you want; scenes with a perspective camera can move the plane to the depth of the
+/// objects being dragged.
 #[derive(Resource, Clone, Copy, Debug, Default, PartialEq)]
 pub struct DragPlane {
     /// The depth of the plane.
     pub z: f32,
 }
 
-/// Projects a pointer position (in window coordinates) through `camera` onto the drag plane.
-fn pointer_on_plane(
+impl DragPlane {
+    /// The drag space of the plane.
+    #[must_use]
+    pub fn space(self) -> DragSpace {
+        DragSpace::world_plane(self.z)
+    }
+}
+
+/// The ray from `camera` through a pointer position in window coordinates.
+fn pointer_ray(
     cameras: &Query<(&Camera, &GlobalTransform)>,
     camera: Entity,
     position: Vec2,
-    plane: DragPlane,
-) -> Option<Vec2> {
+) -> Option<Ray3d> {
     let (camera, transform) = cameras.get(camera).ok()?;
-    let ray = camera.viewport_to_world(transform, position).ok()?;
-    let distance =
-        ray.intersect_plane(Vec3::new(0.0, 0.0, plane.z), InfinitePlane3d::new(Vec3::Z))?;
-    Some(ray.get_point(distance).truncate())
+    camera.viewport_to_world(transform, position).ok()
 }
 
 /// Remembers a press on a draggable node.
@@ -37,6 +44,7 @@ pub(crate) fn on_press<S: Clone + Send + Sync + 'static>(
     mut press: On<PointerPress>,
     nodes: Query<&DragNode<S>>,
     cameras: Query<(&Camera, &GlobalTransform)>,
+    camera_layers: Query<&RenderLayers, With<Camera>>,
     plane: Res<DragPlane>,
     mut model: ResMut<DragModel<S>>,
 ) {
@@ -47,10 +55,23 @@ pub(crate) fn on_press<S: Clone + Send + Sync + 'static>(
         return;
     };
     let camera = press.hit.camera;
-    let Some(pointer) = pointer_on_plane(&cameras, camera, press.pointer.position, *plane) else {
+    let Some(ray) = pointer_ray(&cameras, camera, press.pointer.position) else {
         return;
     };
-    if model.press(&node.id, camera, pointer) {
+    let Ok((_, transform)) = cameras.get(camera) else {
+        return;
+    };
+    // A camera without `RenderLayers` shows layer 0 only.
+    let layers = camera_layers.get(camera).cloned().unwrap_or_default();
+    let visible = |layer| layers.intersects(&RenderLayers::layer(layer));
+    if model.press(
+        &node.id,
+        camera,
+        ray,
+        transform.forward(),
+        plane.space(),
+        visible,
+    ) {
         press.propagate(false);
     }
 }
@@ -60,7 +81,6 @@ pub(crate) fn on_drag_start<S: Clone + Send + Sync + 'static>(
     mut start: On<PointerDragStart>,
     nodes: Query<&DragNode<S>>,
     cameras: Query<(&Camera, &GlobalTransform)>,
-    plane: Res<DragPlane>,
     mut model: ResMut<DragModel<S>>,
 ) {
     let Ok(node) = nodes.get(start.entity) else {
@@ -73,8 +93,8 @@ pub(crate) fn on_drag_start<S: Clone + Send + Sync + 'static>(
         return;
     };
     start.propagate(false);
-    if let Some(pointer) = pointer_on_plane(&cameras, camera, start.pointer.position, *plane) {
-        model.drive(pointer);
+    if let Some(ray) = pointer_ray(&cameras, camera, start.pointer.position) {
+        model.drive(ray);
     }
 }
 
@@ -83,7 +103,6 @@ pub(crate) fn on_drag<S: Clone + Send + Sync + 'static>(
     mut drag: On<PointerDrag>,
     nodes: Query<&DragNode<S>>,
     cameras: Query<(&Camera, &GlobalTransform)>,
-    plane: Res<DragPlane>,
     mut model: ResMut<DragModel<S>>,
 ) {
     let Ok(node) = nodes.get(drag.entity) else {
@@ -96,8 +115,8 @@ pub(crate) fn on_drag<S: Clone + Send + Sync + 'static>(
     let Some(camera) = model.drag_camera() else {
         return;
     };
-    if let Some(pointer) = pointer_on_plane(&cameras, camera, drag.pointer.position, *plane) {
-        model.drive(pointer);
+    if let Some(ray) = pointer_ray(&cameras, camera, drag.pointer.position) {
+        model.drive(ray);
     }
 }
 

@@ -30,6 +30,7 @@ impl<S: Clone + Send + Sync + 'static> DragSpec<S> {
 
 #[cfg(test)]
 mod tests {
+    use crate::space::Pointer;
     use bevy::math::Vec2;
 
     use crate::ops::testing::{Slot, context};
@@ -37,16 +38,22 @@ mod tests {
     #[test]
     fn replaces_the_drop_state_but_keeps_the_preview() {
         let mut behavior = state(Slot(1)).on_drop(Slot(2)).compile(&context());
-        let frame = behavior(Vec2::new(10.0, 0.0));
+        let frame = behavior(Pointer::from(Vec2::new(10.0, 0.0)));
         assert_eq!(frame.drop_state, Slot(2));
-        assert!((frame.view.position("item").unwrap().x - 10.0).abs() < 1e-4);
+        assert!((frame.view.world_position("item").unwrap().x - 10.0).abs() < 1e-4);
     }
 
     #[test]
     fn computes_the_drop_state_from_the_preview() {
         let spec = closest_states([Slot(0), Slot(1)]).on_drop_with(|slot| Slot(slot.0 + 1));
         let mut behavior = spec.compile(&context());
-        assert_eq!(behavior(Vec2::new(10.0, 0.0)).drop_state, Slot(2));
-        assert_eq!(behavior(Vec2::new(0.0, 0.0)).drop_state, Slot(1));
+        assert_eq!(
+            behavior(Pointer::from(Vec2::new(10.0, 0.0))).drop_state,
+            Slot(2)
+        );
+        assert_eq!(
+            behavior(Pointer::from(Vec2::new(0.0, 0.0))).drop_state,
+            Slot(1)
+        );
     }
 }

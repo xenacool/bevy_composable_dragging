@@ -50,6 +50,7 @@ fn follow<S: Clone + Send + Sync + 'static>(
 
 #[cfg(test)]
 mod tests {
+    use crate::space::Pointer;
     use std::sync::Arc;
 
     use bevy::math::Vec2;
@@ -68,7 +69,7 @@ mod tests {
     fn scene(state: &Scene) -> View<Scene> {
         let mut view = View::new().with(
             ViewNode::circle("tool", 1.0)
-                .at(Vec2::new(-50.0, 0.0))
+                .at_xy(Vec2::new(-50.0, 0.0))
                 .draggable(|| {
                     switch_to_state_and_follow(
                         Scene {
@@ -83,7 +84,7 @@ mod tests {
             let current = state.clone();
             view.push(
                 ViewNode::circle("tile", 1.0)
-                    .at(Vec2::new(state.tile, 0.0))
+                    .at_xy(Vec2::new(state.tile, 0.0))
                     .draggable(move || vary(current.clone(), [param!(Scene, tile)])),
             );
         }
@@ -115,7 +116,7 @@ mod tests {
     #[test]
     fn creates_the_element_and_follows_it() {
         let mut behavior = tool_spec().compile(&tool_context());
-        let frame = behavior(Vec2::new(30.0, 0.0));
+        let frame = behavior(Pointer::from(Vec2::new(30.0, 0.0)));
         assert!(frame.drop_state.present);
         assert!((frame.drop_state.tile - 30.0).abs() < 1e-2);
         assert!(frame.view.get("tile").is_some());
@@ -137,7 +138,12 @@ mod tests {
             follow,
         );
         let mut behavior = spec.compile(&tool_context());
-        assert_eq!(behavior(Vec2::new(30.0, 0.0)).drop_state.tile, 7.0);
+        assert_eq!(
+            behavior(Pointer::from(Vec2::new(30.0, 0.0)))
+                .drop_state
+                .tile,
+            7.0
+        );
     }
 
     #[test]
@@ -150,7 +156,7 @@ mod tests {
             "tile",
         );
         let mut behavior = spec.compile(&tool_context());
-        let frame = behavior(Vec2::ZERO);
+        let frame = behavior(Pointer::from(Vec2::ZERO));
         assert_eq!(frame.drop_state.tile, 1.0);
         assert!(frame.gap.is_infinite());
     }

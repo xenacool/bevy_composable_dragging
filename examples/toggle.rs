@@ -26,7 +26,7 @@ fn view(state: &Toggle) -> View<Toggle> {
         .with(ViewNode::rectangle("track", Vec2::new(3.2, 1.5)).with_color(track_color))
         .with(
             ViewNode::circle("knob", 1.2)
-                .at(Vec2::new(knob_x, 0.0))
+                .at_xy(Vec2::new(knob_x, 0.0))
                 .with_z(0.1)
                 .with_color(Color::WHITE)
                 .draggable(|| between([Toggle::Off, Toggle::On])),

@@ -92,7 +92,7 @@ fn view(schedule: &Schedule) -> View<Schedule> {
                 format!("lane-{lane}"),
                 Vec2::new(DAY * HOUR_WIDTH + 0.4, 1.1),
             )
-            .at(Vec2::new(0.0, lane_y(lane)))
+            .at_xy(Vec2::new(0.0, lane_y(lane)))
             .with_color(Color::srgb(0.2, 0.22, 0.27)),
         );
     }
@@ -107,7 +107,7 @@ fn view(schedule: &Schedule) -> View<Schedule> {
         let body = schedule.clone();
         view.push(
             ViewNode::rectangle(format!("meeting-{index}"), Vec2::new(width, 0.9))
-                .at(center)
+                .at_xy(center)
                 .with_z(0.1)
                 .with_color(color)
                 .draggable(move || closest((0..LANES).map(|lane| slide(&body, index, lane)))),
@@ -122,7 +122,7 @@ fn view(schedule: &Schedule) -> View<Schedule> {
                     format!("meeting-{index}-{name}"),
                     Vec2::new(HANDLE_WIDTH, 0.9),
                 )
-                .at(Vec2::new(hour_x(hour), lane_y(meeting.lane)))
+                .at_xy(Vec2::new(hour_x(hour), lane_y(meeting.lane)))
                 .with_z(0.2)
                 .with_color(Color::srgb(0.95, 0.95, 0.98))
                 .draggable(move || resize(&handle, index, edge)),

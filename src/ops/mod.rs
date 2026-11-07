@@ -21,6 +21,7 @@ mod state;
 mod substate;
 #[cfg(test)]
 mod testing;
+mod value;
 mod vary;
 mod weights;
 mod when_far;
@@ -37,4 +38,5 @@ pub use react_to::react_to;
 pub use snap::SnapOptions;
 pub use state::state;
 pub use substate::{Lens, substate};
+pub use value::{Snap, Tracked, across_plane, along_axis, around_axis};
 pub use vary::{VaryOptions, vary, vary_constrained, vary_func, vary_with};

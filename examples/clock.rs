@@ -39,8 +39,8 @@ fn tip(angle: f32, length: f32) -> Vec2 {
 
 fn hand(id: &'static str, angle: f32, length: f32, width: f32, color: Color) -> ViewNode<Clock> {
     ViewNode::rectangle(id, Vec2::new(length, width))
-        .at(tip(angle, length / 2.0))
-        .with_rotation(angle)
+        .at_xy(tip(angle, length / 2.0))
+        .with_rotation_xy(angle)
         .with_z(0.05)
         .with_color(color)
 }
@@ -68,14 +68,14 @@ fn view(state: &Clock) -> View<Clock> {
         ))
         .with(
             ViewNode::circle("hour-tip", 0.5)
-                .at(tip(hour, HOUR_LENGTH))
+                .at_xy(tip(hour, HOUR_LENGTH))
                 .with_z(0.1)
                 .with_color(Color::srgb(0.95, 0.6, 0.2))
                 .draggable(move || vary(hour_start.clone(), [hours()])),
         )
         .with(
             ViewNode::circle("minute-tip", 0.4)
-                .at(tip(minute, MINUTE_LENGTH))
+                .at_xy(tip(minute, MINUTE_LENGTH))
                 .with_z(0.1)
                 .with_color(Color::srgb(0.3, 0.7, 0.45))
                 .draggable(move || vary(minute_start.clone(), [hours()])),

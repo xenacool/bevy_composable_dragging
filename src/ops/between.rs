@@ -119,12 +119,13 @@ pub fn between_with<S: Clone + Send + Sync + 'static>(
         let mut states = Vec::new();
         let mut views: Vec<View<S>> = Vec::new();
         let mut anchors = Vec::new();
+        let space = *context.space();
         for target in &targets {
             let view = context.render(target);
             if let Some(anchor) = context.anchor_in(&view) {
                 states.push(target.clone());
                 views.push(view);
-                anchors.push(anchor);
+                anchors.push(space.local(anchor));
             }
         }
         if states.is_empty() {
@@ -137,6 +138,8 @@ pub fn between_with<S: Clone + Send + Sync + 'static>(
             _ => Vec::new(),
         };
         Box::new(move |pointer| {
+            // The weights are 2D math in the basis of the space of the drag.
+            let pointer = space.local(pointer.point);
             let mut weights = match options.interpolation {
                 Interpolation::Hull => hull_weights(&anchors, pointer),
                 Interpolation::Delaunay => triangle_weights(&anchors, &triangles, pointer)
@@ -279,6 +282,7 @@ fn nearest_segment(points: &[Vec2], q: Vec2) -> (usize, usize, f32) {
 mod tests {
     use super::*;
     use crate::ops::testing::{Slot, context};
+    use crate::space::Pointer;
 
     fn close(a: &[f32], b: &[f32]) -> bool {
         a.iter().zip(b).all(|(x, y)| (x - y).abs() < 1e-4)
@@ -371,7 +375,7 @@ mod tests {
     fn corner_view(corner: &Corner) -> View<Corner> {
         let corners = [(0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 10.0)];
         let (x, y) = corners[corner.0];
-        View::new().with(crate::view::ViewNode::circle("item", 1.0).at(Vec2::new(x, y)))
+        View::new().with(crate::view::ViewNode::circle("item", 1.0).at_xy(Vec2::new(x, y)))
     }
 
     fn corner_frame(options: BetweenOptions, pointer: Vec2) -> Frame<Corner> {
@@ -380,7 +384,7 @@ mod tests {
             "item".into(),
             Corner(0),
         );
-        between_with((0..4).map(Corner), options).compile(&context)(pointer)
+        between_with((0..4).map(Corner), options).compile(&context)(Pointer::from(pointer))
     }
 
     #[test]
@@ -388,14 +392,15 @@ mod tests {
         let context = context();
         for x in [-3.0, 2.0, 7.0, 14.0, 26.0] {
             let pointer = Vec2::new(x, 4.0);
-            let plain = between([Slot(0), Slot(1), Slot(2)]).compile(&context)(pointer);
+            let plain =
+                between([Slot(0), Slot(1), Slot(2)]).compile(&context)(Pointer::from(pointer));
             let with = between_with([Slot(0), Slot(1), Slot(2)], BetweenOptions::new())
-                .compile(&context)(pointer);
+                .compile(&context)(Pointer::from(pointer));
             assert_eq!(plain.drop_state, with.drop_state);
             assert_eq!(plain.gap, with.gap);
             assert_eq!(
-                plain.view.position("item").unwrap(),
-                with.view.position("item").unwrap()
+                plain.view.world_position("item").unwrap(),
+                with.view.world_position("item").unwrap()
             );
         }
     }
@@ -427,9 +432,9 @@ mod tests {
                 BetweenOptions::new().with_interpolation(interpolation),
                 Vec2::new(5.0, -20.0),
             );
-            let item = frame.view.position("item").unwrap();
+            let item = frame.view.world_position("item").unwrap();
             assert!(
-                item.distance(Vec2::new(5.0, 0.0)) < 1e-3,
+                item.truncate().distance(Vec2::new(5.0, 0.0)) < 1e-3,
                 "{interpolation:?}: {item}"
             );
             assert!((frame.gap - 20.0).abs() < 1e-3);
@@ -454,7 +459,8 @@ mod tests {
         let pointer = Vec2::new(3.0, 2.0);
         let soft = corner_frame(BetweenOptions::new(), pointer);
         let sharp = corner_frame(BetweenOptions::new().with_sharpness(4.0), pointer);
-        let from_corner = |frame: &Frame<Corner>| frame.view.position("item").unwrap().length();
+        let from_corner =
+            |frame: &Frame<Corner>| frame.view.world_position("item").unwrap().length();
         assert!(from_corner(&sharp) < from_corner(&soft));
         assert!(sharp.gap > soft.gap);
     }

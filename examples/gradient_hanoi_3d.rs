@@ -11,7 +11,7 @@
 
 use bevy::prelude::*;
 use bevy_composable_dragging::ops::closest_states;
-use bevy_composable_dragging::{DraggablePlugin, ShapeKey, View, ViewNode};
+use bevy_composable_dragging::{DraggablePlugin, View, ViewNode};
 use bevy_gradmesh::Style;
 
 mod common;
@@ -61,8 +61,14 @@ fn moves(hanoi: &Hanoi, peg: usize) -> Vec<Hanoi> {
     options
 }
 
-fn node(id: String, shape: ShapeKey) -> ViewNode<Hanoi> {
-    ViewNode::new(id, shape)
+/// A unit cuboid, scaled by the caller.
+fn cuboid(id: String) -> ViewNode<Hanoi> {
+    ViewNode::cuboid(id, Vec3::ONE, 0.08)
+}
+
+/// A unit cylinder, scaled by the caller.
+fn cylinder(id: String) -> ViewNode<Hanoi> {
+    ViewNode::cylinder(id, 0.5, 1.0)
 }
 
 /// The gradient of a disk: a dark shade of its hue at the bottom and a bright color at the top
@@ -77,14 +83,14 @@ fn disk_style(disk: usize, peg: usize) -> Style {
 
 fn view(hanoi: &Hanoi) -> View<Hanoi> {
     let mut view = View::new();
-    let mut base = node("base".into(), ShapeKey::GradCuboid)
-        .at(Vec2::new(0.0, 0.05))
+    let mut base = cuboid("base".into())
+        .at_xy(Vec2::new(0.0, 0.05))
         .with_color(Color::srgb(0.45, 0.4, 0.38));
     base.transform.scale = Vec3::new(10.0, 0.3, 2.2);
     view.push(base);
     for peg in 0..3 {
-        let mut post = node(format!("peg-{peg}"), ShapeKey::GradCylinder)
-            .at(Vec2::new(peg_x(peg), 1.35))
+        let mut post = cylinder(format!("peg-{peg}"))
+            .at_xy(Vec2::new(peg_x(peg), 1.35))
             .with_color(Color::srgb(0.7, 0.68, 0.65));
         post.transform.scale = Vec3::new(0.18, 2.6, 0.18);
         view.push(post);
@@ -92,8 +98,8 @@ fn view(hanoi: &Hanoi) -> View<Hanoi> {
     for (peg, disks) in hanoi.pegs.iter().enumerate() {
         for (level, &disk) in disks.iter().enumerate() {
             let hue = disk as f32 * 360.0 / DISKS as f32;
-            let mut shape = node(format!("disk-{disk}"), ShapeKey::GradCylinder)
-                .at(disk_position(peg, level))
+            let mut shape = cylinder(format!("disk-{disk}"))
+                .at_xy(disk_position(peg, level))
                 .with_color(Color::hsl(hue, 0.7, 0.55))
                 .with_style(disk_style(disk, peg));
             let diameter = disk_diameter(disk);

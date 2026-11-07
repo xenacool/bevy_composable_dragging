@@ -54,6 +54,7 @@ impl<S: Clone + PartialEq + Send + Sync + 'static> DragSpec<S> {
 
 #[cfg(test)]
 mod tests {
+    use crate::space::Pointer;
     use bevy::math::Vec2;
 
     use crate::behavior::Chaining;
@@ -63,7 +64,7 @@ mod tests {
     #[test]
     fn drop_transition_is_carried_on_the_frame() {
         let spec = closest_states([Slot(0)]).with_drop_transition(0.75);
-        let frame = spec.compile(&context())(Vec2::ZERO);
+        let frame = spec.compile(&context())(Pointer::from(Vec2::ZERO));
         assert_eq!(frame.drop_transition, Some(0.75));
     }
 
@@ -71,15 +72,21 @@ mod tests {
     fn chains_only_when_the_drop_state_leaves_the_start_state() {
         let spec = closest_states([Slot(0), Slot(1)]).with_chaining();
         let mut behavior = spec.compile(&context());
-        assert!(behavior(Vec2::new(0.0, 0.0)).chain.is_none());
-        assert!(behavior(Vec2::new(10.0, 0.0)).chain.is_some());
+        assert!(behavior(Pointer::from(Vec2::new(0.0, 0.0))).chain.is_none());
+        assert!(
+            behavior(Pointer::from(Vec2::new(10.0, 0.0)))
+                .chain
+                .is_some()
+        );
     }
 
     #[test]
     fn chaining_options_are_passed_to_the_frame() {
         let spec = closest_states([Slot(1)])
             .with_chaining_options(Chaining::new().dragging("other").with_transition(0.0));
-        let chain = spec.compile(&context())(Vec2::ZERO).chain.unwrap();
+        let chain = spec.compile(&context())(Pointer::from(Vec2::ZERO))
+            .chain
+            .unwrap();
         assert_eq!(chain.dragged.as_deref(), Some("other"));
         assert_eq!(chain.transition, Some(0.0));
         assert!(chain.follow.is_none());
@@ -89,7 +96,9 @@ mod tests {
     fn an_inner_chaining_request_wins() {
         let inner = closest_states([Slot(1)]).with_chaining_options(Chaining::new().dragging("a"));
         let spec = inner.with_chaining_options(Chaining::new().dragging("b"));
-        let chain = spec.compile(&context())(Vec2::ZERO).chain.unwrap();
+        let chain = spec.compile(&context())(Pointer::from(Vec2::ZERO))
+            .chain
+            .unwrap();
         assert_eq!(chain.dragged.as_deref(), Some("a"));
     }
 }

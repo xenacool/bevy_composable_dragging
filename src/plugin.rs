@@ -11,6 +11,7 @@ use crate::behavior::ViewFn;
 use crate::input::{DragPlane, on_drag, on_drag_end, on_drag_start, on_press};
 use crate::model::DragModel;
 use crate::render::{NodeEntities, sync_nodes};
+use crate::rendering::Rendering;
 use crate::shapes::ShapeMeshes;
 use crate::transition::advance_transitions;
 use crate::view::View;
@@ -19,11 +20,14 @@ use crate::view::View;
 ///
 /// The plugin inserts a [`DragModel<S>`] resource, renders its view as mesh entities, and turns
 /// pointer events on the nodes that carry a drag spec into drags. The scene needs a camera; the
-/// drag plane defaults to the XY plane at `z = 0` (see [`DragPlane`]).
+/// drag plane defaults to the XY plane at `z = 0` (see [`DragPlane`]). Nodes are drawn as `Mesh3d`
+/// entities for a `Camera3d`, or as flat `Mesh2d` entities for a `Camera2d` with
+/// [`with_rendering`](Self::with_rendering).
 pub struct DraggablePlugin<S> {
     initial: S,
     view_fn: ViewFn<S>,
     transition_duration: Option<f32>,
+    rendering: Rendering,
 }
 
 impl<S> DraggablePlugin<S> {
@@ -33,7 +37,17 @@ impl<S> DraggablePlugin<S> {
             initial,
             view_fn: Arc::new(view_fn),
             transition_duration: None,
+            rendering: Rendering::default(),
         }
+    }
+
+    /// Chooses between `Mesh3d` entities for a `Camera3d` (the default) and flat `Mesh2d`
+    /// entities for a `Camera2d`. Single nodes override it with `ViewNode::flat` and
+    /// `ViewNode::spatial`. See [`Rendering`].
+    #[must_use]
+    pub fn with_rendering(mut self, rendering: Rendering) -> Self {
+        self.rendering = rendering;
+        self
     }
 
     /// Sets how long the animation after a drop takes, in seconds. Zero snaps instantly.
@@ -57,7 +71,7 @@ impl<S: Clone + Send + Sync + 'static> Plugin for DraggablePlugin<S> {
         if !app.is_plugin_added::<MeshPickingPlugin>() {
             app.add_plugins(MeshPickingPlugin);
         }
-        #[cfg(any(feature = "shapes-2d", feature = "shapes-3d"))]
+        #[cfg(feature = "gradmesh")]
         if !app.is_plugin_added::<bevy_gradmesh::GradMeshPlugin>() {
             app.add_plugins(bevy_gradmesh::GradMeshPlugin);
         }
@@ -66,6 +80,7 @@ impl<S: Clone + Send + Sync + 'static> Plugin for DraggablePlugin<S> {
             model.set_transition_duration(seconds);
         }
         app.insert_resource(model)
+            .insert_resource(self.rendering)
             .init_resource::<DragPlane>()
             .init_resource::<ShapeMeshes>()
             .init_resource::<NodeEntities<S>>()

@@ -3,58 +3,62 @@
 use std::collections::HashMap;
 
 use bevy::color::LinearRgba;
+use bevy::light::NotShadowCaster;
 use bevy::prelude::*;
 
-use crate::view::{ShapeKey, ViewNode};
+use crate::geometry::Geometry;
+use crate::rendering::Rendering;
+use crate::view::ViewNode;
 
-#[cfg(any(feature = "shapes-2d", feature = "shapes-3d"))]
-use bevy::color::Srgba;
-#[cfg(any(feature = "shapes-2d", feature = "shapes-3d"))]
-use bevy_gradmesh::{GradMeshMaterial, Shape, ShapeDetail, Style};
+#[cfg(feature = "gradmesh")]
+use bevy::sprite_render::{AlphaMode2d, ColorMaterial, MeshMaterial2d};
+#[cfg(feature = "gradmesh")]
+use bevy_gradmesh::{GradMeshMaterial, GradMeshMaterial2d, GradMeshMaterialPool, Style};
 
-impl ShapeKey {
-    /// Builds the unit-sized mesh of the shape.
-    fn build_mesh(self) -> Mesh {
+impl Geometry {
+    /// Builds the mesh of the geometry, flat for `Mesh2d` or in 3D otherwise.
+    #[cfg_attr(not(feature = "gradmesh"), allow(unused_variables))]
+    fn build_mesh(&self, flat: bool) -> Mesh {
         match self {
             Self::Rectangle => Rectangle::new(1.0, 1.0).into(),
             Self::Circle => Circle::new(0.5).mesh().resolution(64).into(),
-            #[cfg(feature = "shapes-3d")]
-            Self::GradSphere => Shape::sphere(0.5, ShapeDetail::Medium).build(),
-            #[cfg(feature = "shapes-3d")]
-            Self::GradCuboid => Shape::cuboid(Vec3::ONE, 0.08, ShapeDetail::Medium).build(),
-            #[cfg(feature = "shapes-3d")]
-            Self::GradCylinder => Shape::cylinder(0.5, 1.0, ShapeDetail::Medium).build(),
-            #[cfg(feature = "shapes-3d")]
-            Self::GradCone => Shape::cone(0.5, 1.0, ShapeDetail::Medium).build(),
-            #[cfg(feature = "shapes-2d")]
-            Self::GradDisc => Shape::disc(0.5, ShapeDetail::Medium).build(),
-            #[cfg(feature = "shapes-2d")]
-            Self::GradRectangle => Shape::rectangle(Vec2::ONE, ShapeDetail::Medium).build(),
-            #[cfg(feature = "shapes-2d")]
-            Self::GradStar => Shape::star(5, 0.5, 0.22, ShapeDetail::Medium).build(),
-            #[cfg(feature = "shapes-2d")]
-            Self::GradRing => Shape::ring(0.5, 0.32, ShapeDetail::Medium).build(),
+            #[cfg(feature = "gradmesh")]
+            Self::Grad(shape) if flat => shape.build_2d(),
+            #[cfg(feature = "gradmesh")]
+            Self::Grad(shape) => shape.build(),
+            Self::Mesh(mesh) => mesh.mesh().clone(),
         }
-    }
-
-    /// Whether the shape is drawn with the gradient material of `bevy_gradmesh`.
-    #[cfg(any(feature = "shapes-2d", feature = "shapes-3d"))]
-    fn is_gradient(self) -> bool {
-        !matches!(self, Self::Rectangle | Self::Circle)
     }
 }
 
-/// The meshes of the shapes in use, built on first use and shared by all nodes.
+/// The meshes of the geometries in use, built on first use and shared by all nodes.
+///
+/// The cache only remembers asset ids, keyed by geometry and by whether the mesh is flat. The
+/// entities hold the strong handles, so a mesh that no node uses any more is freed, and rebuilt
+/// if a node needs it again.
 #[derive(Resource, Default)]
-pub(crate) struct ShapeMeshes(HashMap<ShapeKey, Handle<Mesh>>);
+pub(crate) struct ShapeMeshes(HashMap<(Geometry, bool), AssetId<Mesh>>);
 
 impl ShapeMeshes {
-    /// The shared mesh of `shape`.
-    pub(crate) fn get(&mut self, shape: ShapeKey, meshes: &mut Assets<Mesh>) -> Handle<Mesh> {
-        self.0
-            .entry(shape)
-            .or_insert_with(|| meshes.add(shape.build_mesh()))
-            .clone()
+    /// The shared mesh of `geometry`.
+    pub(crate) fn get(
+        &mut self,
+        geometry: &Geometry,
+        flat: bool,
+        meshes: &mut Assets<Mesh>,
+    ) -> Handle<Mesh> {
+        let key = (geometry.clone(), flat);
+        if let Some(handle) = self
+            .0
+            .get(&key)
+            .and_then(|id| meshes.get_strong_handle(*id))
+        {
+            return handle;
+        }
+        self.0.retain(|_, id| meshes.contains(*id));
+        let handle = meshes.add(geometry.build_mesh(flat));
+        self.0.insert(key, handle.id());
+        handle
     }
 }
 
@@ -71,15 +75,36 @@ fn flat_material(color: LinearRgba) -> StandardMaterial {
     }
 }
 
-/// A dual-directional gradient style from a darker shade of `color` at the bottom to `color` at
-/// the top. Nodes without a style of their own are drawn with it, so blending their colors blends
-/// their gradients too.
-#[cfg(any(feature = "shapes-2d", feature = "shapes-3d"))]
+/// The number of steps the alpha of a fading gradient is quantized to.
+#[cfg(feature = "gradmesh")]
+const ALPHA_STEPS: f32 = 32.0;
+
+/// The gradient of nodes without a style of their own: their color on top and a darker shade
+/// below. Blending their colors therefore blends their gradients too.
+#[cfg(feature = "gradmesh")]
 pub(crate) fn gradient_style(color: LinearRgba) -> Style {
-    let light = Srgba::from(color);
-    let dark = bevy::color::Color::srgb(light.red * 0.35, light.green * 0.35, light.blue * 0.35);
-    let bright = bevy::color::Color::srgb(light.red, light.green, light.blue);
-    Style::dual_directional_up(dark, bright)
+    Style::shaded(Color::from(color), 0.35)
+}
+
+/// Whether the rendering mode draws `Mesh2d` entities.
+#[cfg(feature = "gradmesh")]
+fn is_flat(mode: Rendering) -> bool {
+    mode == Rendering::Flat
+}
+
+/// Whether the rendering mode draws `Mesh2d` entities, which needs the `gradmesh` feature.
+#[cfg(not(feature = "gradmesh"))]
+fn is_flat(_mode: Rendering) -> bool {
+    false
+}
+
+/// Makes the entity cast shadows or not.
+fn set_shadow_casting(entity: &mut EntityCommands, casts: bool) {
+    if casts {
+        entity.remove::<NotShadowCaster>();
+    } else {
+        entity.insert(NotShadowCaster);
+    }
 }
 
 /// The resources needed to give nodes their mesh and material.
@@ -88,46 +113,140 @@ pub(crate) struct Looks<'w> {
     shapes: ResMut<'w, ShapeMeshes>,
     meshes: ResMut<'w, Assets<Mesh>>,
     flat: ResMut<'w, Assets<StandardMaterial>>,
-    #[cfg(any(feature = "shapes-2d", feature = "shapes-3d"))]
+    #[cfg(feature = "gradmesh")]
     gradient: ResMut<'w, Assets<GradMeshMaterial>>,
+    #[cfg(feature = "gradmesh")]
+    pool: ResMut<'w, GradMeshMaterialPool>,
+    #[cfg(feature = "gradmesh")]
+    rendering: Res<'w, Rendering>,
+    #[cfg(feature = "gradmesh")]
+    flat_2d: Option<ResMut<'w, Assets<ColorMaterial>>>,
+    #[cfg(feature = "gradmesh")]
+    gradient_2d: Option<ResMut<'w, Assets<GradMeshMaterial2d>>>,
 }
 
 impl Looks<'_> {
-    /// The mesh component for `shape`.
-    pub(crate) fn mesh(&mut self, shape: ShapeKey) -> Mesh3d {
-        Mesh3d(self.shapes.get(shape, &mut self.meshes))
+    /// The rendering mode of a node: its own, or the default of the plugin.
+    #[cfg(feature = "gradmesh")]
+    pub(crate) fn mode_of(&self, own: Option<Rendering>) -> Rendering {
+        own.unwrap_or(*self.rendering)
     }
 
-    /// Whether the material of `node` depends on more than its shape and color, so it has to be
-    /// rebuilt whenever the node is synced.
-    pub(crate) fn has_own_style<S>(node: &ViewNode<S>) -> bool {
-        #[cfg(any(feature = "shapes-2d", feature = "shapes-3d"))]
-        return node.style.is_some() && node.shape.is_gradient();
-        #[cfg(not(any(feature = "shapes-2d", feature = "shapes-3d")))]
-        {
-            let _ = node;
-            false
+    /// The rendering mode of a node, which is always spatial without the `gradmesh` feature.
+    #[cfg(not(feature = "gradmesh"))]
+    #[allow(clippy::unused_self)]
+    pub(crate) fn mode_of(&self, own: Option<Rendering>) -> Rendering {
+        own.unwrap_or_default()
+    }
+
+    /// Gives the entity the mesh of `geometry`, as `Mesh2d` or `Mesh3d` depending on the
+    /// rendering `mode`, replacing the other kind.
+    pub(crate) fn apply_mesh(
+        &mut self,
+        entity: &mut EntityCommands,
+        geometry: &Geometry,
+        mode: Rendering,
+    ) {
+        let handle = self.shapes.get(geometry, is_flat(mode), &mut self.meshes);
+        #[cfg(feature = "gradmesh")]
+        if is_flat(mode) {
+            entity.insert(Mesh2d(handle)).remove::<Mesh3d>();
+            return;
         }
+        entity.insert(Mesh3d(handle));
+        #[cfg(feature = "gradmesh")]
+        entity.remove::<Mesh2d>();
     }
 
-    /// Gives the entity the material of `node`, replacing the other kind of material.
+    /// Gives the entity the material of `node`, drawn with `opacity` (the opacity of the node
+    /// multiplied by those of its ancestors), replacing the other kind of material.
     ///
     /// Gradient shapes are drawn with the style of the node, or with the gradient of its color
-    /// when it has none.
-    pub(crate) fn apply_material<S>(&mut self, entity: &mut EntityCommands, node: &ViewNode<S>) {
-        #[cfg(any(feature = "shapes-2d", feature = "shapes-3d"))]
-        if node.shape.is_gradient() {
-            let material = node
-                .style
-                .as_ref()
-                .map_or_else(|| gradient_style(node.color).build(), Style::build);
+    /// when it has none. Translucent ones fade through the alpha of the style, in steps so a fade
+    /// does not need a new material every frame, and stop casting shadows.
+    pub(crate) fn apply_material<S>(
+        &mut self,
+        entity: &mut EntityCommands,
+        node: &ViewNode<S>,
+        opacity: f32,
+        mode: Rendering,
+    ) {
+        #[cfg(feature = "gradmesh")]
+        if is_flat(mode) {
             entity
-                .insert(MeshMaterial3d(self.gradient.add(material)))
+                .remove::<MeshMaterial3d<StandardMaterial>>()
+                .remove::<MeshMaterial3d<GradMeshMaterial>>();
+            self.apply_flat_material(entity, node, opacity);
+            return;
+        }
+        #[cfg(feature = "gradmesh")]
+        entity
+            .remove::<MeshMaterial2d<ColorMaterial>>()
+            .remove::<MeshMaterial2d<GradMeshMaterial2d>>();
+        #[cfg(not(feature = "gradmesh"))]
+        let _ = mode;
+        #[cfg(feature = "gradmesh")]
+        if node.geometry.is_gradient() {
+            let mut style = node
+                .style
+                .clone()
+                .unwrap_or_else(|| gradient_style(node.color));
+            if opacity < 1.0 {
+                style = style.with_alpha((opacity * ALPHA_STEPS).round() / ALPHA_STEPS);
+            }
+            set_shadow_casting(entity, node.casts_shadow && style.casts_shadows());
+            let material = self.pool.get_or_add(&style, &mut self.gradient);
+            entity
+                .insert(MeshMaterial3d(material))
                 .remove::<MeshMaterial3d<StandardMaterial>>();
             return;
         }
-        entity.insert(MeshMaterial3d(self.flat.add(flat_material(node.color))));
-        #[cfg(any(feature = "shapes-2d", feature = "shapes-3d"))]
+        set_shadow_casting(entity, node.casts_shadow);
+        let mut color = node.color;
+        color.alpha *= opacity;
+        entity.insert(MeshMaterial3d(self.flat.add(flat_material(color))));
+        #[cfg(feature = "gradmesh")]
         entity.remove::<MeshMaterial3d<GradMeshMaterial>>();
+    }
+
+    /// The `Mesh2d` counterpart of [`apply_material`](Self::apply_material): unlit colors and
+    /// 2D gradients, which fade through their alpha.
+    #[cfg(feature = "gradmesh")]
+    fn apply_flat_material<S>(
+        &mut self,
+        entity: &mut EntityCommands,
+        node: &ViewNode<S>,
+        opacity: f32,
+    ) {
+        let (Some(flat), Some(gradient)) = (self.flat_2d.as_mut(), self.gradient_2d.as_mut())
+        else {
+            return;
+        };
+        if node.geometry.is_gradient() {
+            let mut style = node
+                .style
+                .clone()
+                .unwrap_or_else(|| gradient_style(node.color));
+            if opacity < 1.0 {
+                style = style.with_alpha((opacity * ALPHA_STEPS).round() / ALPHA_STEPS);
+            }
+            entity
+                .insert(MeshMaterial2d(gradient.add(style.build_2d())))
+                .remove::<MeshMaterial2d<ColorMaterial>>();
+        } else {
+            let mut color = node.color;
+            color.alpha *= opacity;
+            entity
+                .insert(MeshMaterial2d(flat.add(ColorMaterial {
+                    color: color.into(),
+                    alpha_mode: if color.alpha < 1.0 {
+                        AlphaMode2d::Blend
+                    } else {
+                        AlphaMode2d::Opaque
+                    },
+                    ..default()
+                })))
+                .remove::<MeshMaterial2d<GradMeshMaterial2d>>();
+        }
     }
 }

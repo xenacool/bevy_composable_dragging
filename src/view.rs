@@ -10,10 +10,16 @@ use std::sync::Arc;
 
 use bevy::color::LinearRgba;
 use bevy::math::{Mat4, Quat, Vec2, Vec3};
-use bevy::prelude::{Color, Transform};
-#[cfg(any(feature = "shapes-2d", feature = "shapes-3d"))]
-use bevy_gradmesh::Style;
+use bevy::prelude::{Color, Ray3d, Transform};
+#[cfg(feature = "gradmesh")]
+use bevy_gradmesh::{Shape, ShapeDetail, Style};
 
+use crate::blend::Presence;
+#[cfg(feature = "pbr")]
+use crate::geometry::MeshGeometry;
+use crate::geometry::{Bounds, Geometry};
+use crate::rendering::Rendering;
+use crate::space::DragSpace;
 use crate::spec::DragSpec;
 
 /// The stable, globally unique identifier that matches a node across different views.
@@ -22,61 +28,6 @@ pub type NodeId = Cow<'static, str>;
 /// Lazily builds the [`DragSpec`] of a node, so specs are only constructed for the node being
 /// dragged and not for every node of every speculative view.
 pub type DragFactory<S> = Arc<dyn Fn() -> DragSpec<S> + Send + Sync>;
-
-/// The geometry a [`ViewNode`] is drawn with.
-///
-/// Shapes are unit sized and scaled by the node's transform, so blending two views also blends
-/// the node sizes.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-#[non_exhaustive]
-pub enum ShapeKey {
-    /// A unit square in the XY plane.
-    Rectangle,
-    /// A circle with unit diameter in the XY plane.
-    Circle,
-    /// A gradient sphere with unit diameter.
-    #[cfg(feature = "shapes-3d")]
-    GradSphere,
-    /// A gradient cube with unit edges.
-    #[cfg(feature = "shapes-3d")]
-    GradCuboid,
-    /// A gradient cylinder with unit diameter and height, standing along the Y axis.
-    #[cfg(feature = "shapes-3d")]
-    GradCylinder,
-    /// A gradient cone with unit base diameter and height, pointing along the Y axis.
-    #[cfg(feature = "shapes-3d")]
-    GradCone,
-    /// A gradient disc with unit diameter in the XY plane.
-    #[cfg(feature = "shapes-2d")]
-    GradDisc,
-    /// A gradient square with unit edges in the XY plane.
-    #[cfg(feature = "shapes-2d")]
-    GradRectangle,
-    /// A gradient five-pointed star within a unit circle in the XY plane.
-    #[cfg(feature = "shapes-2d")]
-    GradStar,
-    /// A gradient ring with unit outer diameter in the XY plane.
-    #[cfg(feature = "shapes-2d")]
-    GradRing,
-}
-
-impl ShapeKey {
-    /// Whether the outline is round, which decides how pointer hits are tested against it.
-    fn is_round(self) -> bool {
-        match self {
-            Self::Rectangle => false,
-            Self::Circle => true,
-            #[cfg(feature = "shapes-3d")]
-            Self::GradSphere => true,
-            #[cfg(feature = "shapes-3d")]
-            Self::GradCuboid | Self::GradCylinder | Self::GradCone => false,
-            #[cfg(feature = "shapes-2d")]
-            Self::GradDisc | Self::GradStar | Self::GradRing => true,
-            #[cfg(feature = "shapes-2d")]
-            Self::GradRectangle => false,
-        }
-    }
-}
 
 /// A single element of a [`View`].
 #[derive(Clone)]
@@ -95,54 +46,165 @@ pub struct ViewNode<S> {
     /// When two views are blended, nodes that both have a style blend them with `Style::lerp`
     /// from `bevy_gradmesh`. A node without a style takes part with the gradient derived from
     /// its color.
-    #[cfg(any(feature = "shapes-2d", feature = "shapes-3d"))]
+    #[cfg(feature = "gradmesh")]
     pub style: Option<Style>,
     /// The geometry the node is drawn with.
-    pub shape: ShapeKey,
+    pub geometry: Geometry,
+    /// How opaque the node is, from `0.0` to `1.0`. Like in SVG, the opacity of a node is
+    /// multiplied into the opacity of its children.
+    pub opacity: f32,
+    /// What happens to the node when it exists in only one of two blended views.
+    pub presence: Presence,
+    /// Whether the node casts shadows.
+    pub casts_shadow: bool,
+    /// How the node is drawn, or `None` for the default of the plugin (see [`Rendering`]).
+    pub rendering: Option<Rendering>,
+    /// The render layer of the node. A camera only draws, and a press from it only picks, the
+    /// nodes on its own layers. Layer `0` is the default layer of Bevy cameras.
+    pub layer: usize,
     /// The drag behavior attached to this node, if it can be dragged.
     pub drag: Option<DragFactory<S>>,
+    /// The space a drag of this node happens in. `None` uses the default space of the scene
+    /// (see `DragPlane`).
+    pub drag_space: Option<DragSpace>,
 }
 
 impl<S> ViewNode<S> {
     /// Creates a white node with an identity transform.
-    pub fn new(id: impl Into<NodeId>, shape: ShapeKey) -> Self {
+    pub fn new(id: impl Into<NodeId>, geometry: impl Into<Geometry>) -> Self {
         Self {
             id: id.into(),
             parent: None,
             transform: Transform::IDENTITY,
             color: LinearRgba::WHITE,
-            #[cfg(any(feature = "shapes-2d", feature = "shapes-3d"))]
+            #[cfg(feature = "gradmesh")]
             style: None,
-            shape,
+            geometry: geometry.into(),
+            opacity: 1.0,
+            presence: Presence::default(),
+            casts_shadow: true,
+            rendering: None,
+            layer: 0,
             drag: None,
+            drag_space: None,
         }
     }
 
     /// Creates a rectangle of the given size.
     pub fn rectangle(id: impl Into<NodeId>, size: Vec2) -> Self {
-        let mut node = Self::new(id, ShapeKey::Rectangle);
+        let mut node = Self::new(id, Geometry::Rectangle);
         node.transform.scale = size.extend(1.0);
         node
     }
 
     /// Creates a circle of the given diameter.
     pub fn circle(id: impl Into<NodeId>, diameter: f32) -> Self {
-        let mut node = Self::new(id, ShapeKey::Circle);
+        let mut node = Self::new(id, Geometry::Circle);
         node.transform.scale = Vec3::new(diameter, diameter, 1.0);
         node
     }
 
+    /// Creates a node drawn with a mesh of your own, at the dimensions of the mesh.
+    #[cfg(feature = "pbr")]
+    pub fn mesh(id: impl Into<NodeId>, mesh: MeshGeometry) -> Self {
+        Self::new(id, Geometry::Mesh(mesh))
+    }
+
+    /// Creates a node drawn with any `bevy_gradmesh` shape, at the dimensions of the shape.
+    #[cfg(feature = "gradmesh")]
+    pub fn grad(id: impl Into<NodeId>, shape: Shape) -> Self {
+        Self::new(id, Geometry::Grad(shape))
+    }
+
+    /// Creates a gradient sphere of the given radius.
+    #[cfg(feature = "gradmesh")]
+    pub fn sphere(id: impl Into<NodeId>, radius: f32) -> Self {
+        Self::grad(id, Shape::sphere(radius, ShapeDetail::Medium))
+    }
+
+    /// Creates a gradient cuboid of the given size, with `roundness` rounding its edges.
+    #[cfg(feature = "gradmesh")]
+    pub fn cuboid(id: impl Into<NodeId>, size: Vec3, roundness: f32) -> Self {
+        Self::grad(id, Shape::cuboid(size, roundness, ShapeDetail::Medium))
+    }
+
+    /// Creates a gradient cylinder standing along the Y axis.
+    #[cfg(feature = "gradmesh")]
+    pub fn cylinder(id: impl Into<NodeId>, radius: f32, height: f32) -> Self {
+        Self::grad(id, Shape::cylinder(radius, height, ShapeDetail::Medium))
+    }
+
+    /// Creates a gradient cone pointing along the Y axis.
+    #[cfg(feature = "gradmesh")]
+    pub fn cone(id: impl Into<NodeId>, radius: f32, height: f32) -> Self {
+        Self::grad(id, Shape::cone(radius, height, ShapeDetail::Medium))
+    }
+
+    /// Creates a full gradient torus with the given ring radius and tube thickness.
+    #[cfg(feature = "gradmesh")]
+    pub fn torus(id: impl Into<NodeId>, radius: f32, thickness: f32) -> Self {
+        Self::grad(
+            id,
+            Shape::torus(radius, thickness, 0.0, std::f32::consts::TAU),
+        )
+    }
+
+    /// Creates a flat gradient disc in the XY plane.
+    #[cfg(feature = "gradmesh")]
+    pub fn disc(id: impl Into<NodeId>, radius: f32) -> Self {
+        Self::grad(id, Shape::disc(radius, ShapeDetail::Medium))
+    }
+
+    /// Creates a flat gradient ring in the XY plane.
+    #[cfg(feature = "gradmesh")]
+    pub fn ring(id: impl Into<NodeId>, outer_radius: f32, inner_radius: f32) -> Self {
+        Self::grad(
+            id,
+            Shape::ring(outer_radius, inner_radius, ShapeDetail::Medium),
+        )
+    }
+
+    /// Creates a flat gradient star in the XY plane.
+    #[cfg(feature = "gradmesh")]
+    pub fn star(id: impl Into<NodeId>, points: u32, outer_radius: f32, inner_radius: f32) -> Self {
+        Self::grad(
+            id,
+            Shape::star(points, outer_radius, inner_radius, ShapeDetail::Medium),
+        )
+    }
+
+    /// Sets the transform of the node, relative to its parent.
+    #[must_use]
+    pub fn with_transform(mut self, transform: Transform) -> Self {
+        self.transform = transform;
+        self
+    }
+
+    /// Moves the node to `position`.
+    #[must_use]
+    pub fn at(mut self, position: Vec3) -> Self {
+        self.transform.translation = position;
+        self
+    }
+
     /// Moves the node to `position` in the XY plane, keeping its depth.
     #[must_use]
-    pub fn at(mut self, position: Vec2) -> Self {
+    pub fn at_xy(mut self, position: Vec2) -> Self {
         self.transform.translation.x = position.x;
         self.transform.translation.y = position.y;
         self
     }
 
+    /// Scales the node by `scale` along each axis.
+    #[must_use]
+    pub fn scaled(mut self, scale: Vec3) -> Self {
+        self.transform.scale = scale;
+        self
+    }
+
     /// Scales the node to `size` in the XY plane, keeping its depth scale.
     #[must_use]
-    pub fn scaled(mut self, size: Vec2) -> Self {
+    pub fn scaled_xy(mut self, size: Vec2) -> Self {
         self.transform.scale.x = size.x;
         self.transform.scale.y = size.y;
         self
@@ -155,10 +217,49 @@ impl<S> ViewNode<S> {
         self
     }
 
+    /// Sets the rotation of the node.
+    #[must_use]
+    pub fn with_rotation(mut self, rotation: Quat) -> Self {
+        self.transform.rotation = rotation;
+        self
+    }
+
     /// Rotates the node around the Z axis by `radians`.
     #[must_use]
-    pub fn with_rotation(mut self, radians: f32) -> Self {
+    pub fn with_rotation_xy(mut self, radians: f32) -> Self {
         self.transform.rotation = Quat::from_rotation_z(radians);
+        self
+    }
+
+    /// Sets whether the node casts shadows. Nodes cast shadows by default.
+    #[must_use]
+    pub fn casts_shadow(mut self, casts: bool) -> Self {
+        self.casts_shadow = casts;
+        self
+    }
+
+    /// Draws the node as a flat `Mesh2d` for a `Camera2d`, whatever the default of the plugin is.
+    ///
+    /// Together with [`on_layer`](Self::on_layer) this builds a HUD over a 3D scene.
+    #[cfg(feature = "gradmesh")]
+    #[must_use]
+    pub fn flat(mut self) -> Self {
+        self.rendering = Some(Rendering::Flat);
+        self
+    }
+
+    /// Draws the node as a `Mesh3d` for a `Camera3d`, whatever the default of the plugin is.
+    #[must_use]
+    pub fn spatial(mut self) -> Self {
+        self.rendering = Some(Rendering::Spatial);
+        self
+    }
+
+    /// Puts the node on render layer `layer`, so only cameras that show that layer draw and pick
+    /// it. Nodes are on layer `0` by default.
+    #[must_use]
+    pub fn on_layer(mut self, layer: usize) -> Self {
+        self.layer = layer;
         self
     }
 
@@ -170,11 +271,31 @@ impl<S> ViewNode<S> {
     }
 
     /// Sets the gradient style of the node. It only affects the gradient shapes.
-    #[cfg(any(feature = "shapes-2d", feature = "shapes-3d"))]
+    #[cfg(feature = "gradmesh")]
     #[must_use]
     pub fn with_style(mut self, style: Style) -> Self {
         self.style = Some(style);
         self
+    }
+
+    /// Sets the opacity of the node, clamped to `0.0..=1.0`.
+    #[must_use]
+    pub fn with_opacity(mut self, opacity: f32) -> Self {
+        self.opacity = opacity.clamp(0.0, 1.0);
+        self
+    }
+
+    /// Sets what the node does when it exists in only one of two blended views.
+    #[must_use]
+    pub fn presence(mut self, presence: Presence) -> Self {
+        self.presence = presence;
+        self
+    }
+
+    /// Makes the node grow from (and shrink into) the node `from` when it enters or leaves.
+    #[must_use]
+    pub fn emerge_from(self, from: impl Into<NodeId>) -> Self {
+        self.presence(Presence::Emerge { from: from.into() })
     }
 
     /// Positions the node relative to the node with id `parent`.
@@ -191,6 +312,23 @@ impl<S> ViewNode<S> {
         self
     }
 
+    /// Makes the node draggable in `space`. `spec` is only called when a drag on this node starts.
+    #[must_use]
+    pub fn draggable_in(
+        self,
+        space: DragSpace,
+        spec: impl Fn() -> DragSpec<S> + Send + Sync + 'static,
+    ) -> Self {
+        self.draggable(spec).in_space(space)
+    }
+
+    /// Sets the space a drag of this node happens in.
+    #[must_use]
+    pub fn in_space(mut self, space: DragSpace) -> Self {
+        self.drag_space = Some(space);
+        self
+    }
+
     /// The same node for another state type. A drag spec of one state type cannot drive another,
     /// so the new node is not draggable.
     fn rebind<U>(&self) -> ViewNode<U> {
@@ -199,10 +337,16 @@ impl<S> ViewNode<S> {
             parent: self.parent.clone(),
             transform: self.transform,
             color: self.color,
-            #[cfg(any(feature = "shapes-2d", feature = "shapes-3d"))]
+            #[cfg(feature = "gradmesh")]
             style: self.style.clone(),
-            shape: self.shape,
+            geometry: self.geometry.clone(),
+            opacity: self.opacity,
+            presence: self.presence.clone(),
+            casts_shadow: self.casts_shadow,
+            rendering: self.rendering,
+            layer: self.layer,
             drag: None,
+            drag_space: self.drag_space,
         }
     }
 }
@@ -285,55 +429,122 @@ impl<S> View<S> {
         self.world_transforms().get(id).copied()
     }
 
-    /// The world position of the node with the given id in the XY plane.
+    /// The transform of the node with the given id, relative to its parent.
     #[must_use]
-    pub fn position(&self, id: &str) -> Option<Vec2> {
+    pub fn transform(&self, id: &str) -> Option<Transform> {
+        self.get(id).map(|node| node.transform)
+    }
+
+    /// The world position of the node with the given id.
+    #[must_use]
+    pub fn world_position(&self, id: &str) -> Option<Vec3> {
         self.world_transform(id)
-            .map(|transform| transform.translation.truncate())
+            .map(|transform| transform.translation)
     }
 
-    /// Whether `point` (in the XY plane) lies inside the node's shape.
-    ///
-    /// Returns `false` when the view has no such node or the node is flattened to nothing.
-    #[must_use]
-    pub fn contains_point(&self, id: &str, point: Vec2) -> bool {
-        let (Some(node), Some(world)) = (self.get(id), self.world_transform(id)) else {
-            return false;
-        };
-        let affine = world.compute_affine();
-        if affine.matrix3.determinant().abs() < f32::EPSILON {
-            return false;
-        }
-        let local = affine
-            .inverse()
-            .transform_point3(point.extend(world.translation.z))
-            .truncate();
-        if node.shape.is_round() {
-            local.length() <= 0.5
-        } else {
-            local.x.abs() <= 0.5 && local.y.abs() <= 0.5
-        }
-    }
-
-    /// Moves the node with the given id so that its world position in the XY plane is `position`.
+    /// Moves the node with the given id so that its world transform is `world`.
     ///
     /// Returns `false` when the view has no such node.
-    pub fn set_position(&mut self, id: &str, position: Vec2) -> bool {
+    pub fn set_world_transform(&mut self, id: &str, world: Transform) -> bool {
         let worlds = self.world_transforms();
-        let Some(mut world) = worlds.get(id).copied() else {
+        if !worlds.contains_key(id) {
             return false;
-        };
+        }
         let parent_world = self
             .get(id)
             .and_then(|node| node.parent.as_deref())
             .and_then(|parent| worlds.get(parent).copied());
-        world.translation.x = position.x;
-        world.translation.y = position.y;
         let local = to_local(world, parent_world);
         if let Some(node) = self.nodes.iter_mut().find(|node| node.id == id) {
             node.transform = local;
         }
         true
+    }
+
+    /// Whether the ray hits the oriented bounds of the node with the given id. This is `false`
+    /// when the view has no such node or the node is flattened to nothing.
+    #[must_use]
+    pub fn is_hit(&self, id: &str, ray: Ray3d) -> bool {
+        let (Some(node), Some(world)) = (self.get(id), self.world_transform(id)) else {
+            return false;
+        };
+        intersect(ray, &world, node.geometry.bounds()).is_some()
+    }
+
+    /// The node the ray hits first, testing the oriented bounds of every node: an ellipsoid for
+    /// round geometry and a box otherwise. Nodes flattened to nothing are never hit, and of two
+    /// hits at the same distance the node later in the view wins, like the one drawn on top.
+    #[must_use]
+    pub fn hit_test(&self, ray: Ray3d) -> Option<Hit> {
+        self.hit_test_in(ray, |_| true)
+    }
+
+    /// Like [`hit_test`](Self::hit_test), but only for the nodes whose render layer `visible`
+    /// accepts. A camera passes the layers it shows, so a ray from a HUD camera never hits a
+    /// node of the 3D scene, and the other way round.
+    #[must_use]
+    pub fn hit_test_in(&self, ray: Ray3d, visible: impl Fn(usize) -> bool) -> Option<Hit> {
+        let worlds = self.world_transforms();
+        let mut best: Option<Hit> = None;
+        for node in self.nodes.iter().filter(|node| visible(node.layer)) {
+            let Some(world) = worlds.get(node.id.as_ref()) else {
+                continue;
+            };
+            let Some(distance) = intersect(ray, world, node.geometry.bounds()) else {
+                continue;
+            };
+            if best.as_ref().is_none_or(|hit| distance <= hit.distance) {
+                best = Some(Hit {
+                    id: node.id.clone(),
+                    distance,
+                    point: ray.get_point(distance),
+                });
+            }
+        }
+        best
+    }
+
+    /// The node with the given id if it is draggable, and otherwise its nearest draggable
+    /// ancestor. This is the node a press on `id` grabs.
+    #[must_use]
+    pub fn draggable_ancestor(&self, id: &str) -> Option<&ViewNode<S>> {
+        let mut current = self.get(id)?;
+        for _ in 0..=self.nodes.len() {
+            if current.drag.is_some() {
+                return Some(current);
+            }
+            current = self.get(current.parent.as_deref()?)?;
+        }
+        None
+    }
+
+    /// The opacity of every node multiplied by the opacities of its ancestors, as in SVG.
+    #[cfg_attr(not(feature = "pbr"), allow(dead_code))]
+    pub(crate) fn effective_opacities(&self) -> HashMap<&str, f32> {
+        let index: HashMap<&str, &ViewNode<S>> = self
+            .nodes
+            .iter()
+            .map(|node| (node.id.as_ref(), node))
+            .collect();
+        self.nodes
+            .iter()
+            .map(|node| {
+                let mut opacity = node.opacity;
+                let mut current = node;
+                for _ in 0..self.nodes.len() {
+                    let Some(parent) = current
+                        .parent
+                        .as_deref()
+                        .and_then(|parent| index.get(parent))
+                    else {
+                        break;
+                    };
+                    opacity *= parent.opacity;
+                    current = parent;
+                }
+                (node.id.as_ref(), opacity)
+            })
+            .collect()
     }
 
     /// World transforms of all nodes, resolved once per node.
@@ -349,6 +560,65 @@ impl<S> View<S> {
         }
         worlds
     }
+}
+
+/// The node that a ray hit first, see [`View::hit_test`].
+#[derive(Clone, Debug, PartialEq)]
+pub struct Hit {
+    /// The node that was hit.
+    pub id: NodeId,
+    /// The distance from the origin of the ray to the hit.
+    pub distance: f32,
+    /// The world position of the hit.
+    pub point: Vec3,
+}
+
+/// The distance along `ray` at which it first enters the oriented `bounds` of a node with the
+/// given world transform (zero when it starts inside).
+fn intersect(ray: Ray3d, world: &Transform, bounds: Bounds) -> Option<f32> {
+    let affine = world.compute_affine();
+    if affine.matrix3.determinant().abs() < f32::EPSILON {
+        return None;
+    }
+    // The ray in the local space of the node. The direction is not renormalized, so distances
+    // along the local ray are distances along the world ray.
+    let inverse = affine.inverse();
+    let origin = inverse.transform_point3(ray.origin) - bounds.center;
+    let direction = inverse.transform_vector3(*ray.direction);
+    let half = bounds.half_extents;
+    if bounds.round {
+        let (o, d) = (origin / half, direction / half);
+        let a = d.length_squared();
+        let b = o.dot(d);
+        let discriminant = b * b - a * (o.length_squared() - 1.0);
+        if discriminant < 0.0 || a <= f32::EPSILON {
+            return None;
+        }
+        let root = discriminant.sqrt();
+        let (near, far) = ((-b - root) / a, (-b + root) / a);
+        return if near >= 0.0 {
+            Some(near)
+        } else if far >= 0.0 {
+            Some(0.0)
+        } else {
+            None
+        };
+    }
+    let mut enter = f32::NEG_INFINITY;
+    let mut leave = f32::INFINITY;
+    for axis in 0..3 {
+        let (o, d, h) = (origin[axis], direction[axis], half[axis]);
+        if d.abs() < f32::EPSILON {
+            if o.abs() > h {
+                return None;
+            }
+            continue;
+        }
+        let (t1, t2) = ((-h - o) / d, (h - o) / d);
+        enter = enter.max(t1.min(t2));
+        leave = leave.min(t1.max(t2));
+    }
+    (enter <= leave && leave >= 0.0).then_some(enter.max(0.0))
 }
 
 fn resolve_world<'a, S>(
@@ -389,21 +659,27 @@ pub(crate) fn to_local(world: Transform, parent_world: Option<Transform>) -> Tra
 
 #[cfg(test)]
 mod tests {
+    use bevy::math::Dir3;
+
     use super::*;
 
     type TestView = View<()>;
 
+    fn down_at(x: f32, y: f32) -> Ray3d {
+        Ray3d::new(Vec3::new(x, y, 10.0), Dir3::NEG_Z)
+    }
+
     #[test]
     fn world_transform_composes_through_parents() {
         let view: TestView = View::new()
-            .with(ViewNode::rectangle("group", Vec2::ONE).at(Vec2::new(10.0, 0.0)))
+            .with(ViewNode::rectangle("group", Vec2::ONE).at_xy(Vec2::new(10.0, 0.0)))
             .with(
                 ViewNode::circle("item", 1.0)
                     .with_parent("group")
-                    .at(Vec2::new(2.0, 3.0)),
+                    .at_xy(Vec2::new(2.0, 3.0)),
             );
-        let position = view.position("item").unwrap();
-        assert!(position.distance(Vec2::new(12.0, 3.0)) < 1e-5);
+        let position = view.world_position("item").unwrap();
+        assert!(position.distance(Vec3::new(12.0, 3.0, 0.0)) < 1e-5);
     }
 
     #[test]
@@ -411,9 +687,9 @@ mod tests {
         let view: TestView = View::new().with(
             ViewNode::circle("item", 1.0)
                 .with_parent("gone")
-                .at(Vec2::X),
+                .at_xy(Vec2::X),
         );
-        assert!(view.position("item").unwrap().distance(Vec2::X) < 1e-5);
+        assert!(view.world_position("item").unwrap().distance(Vec3::X) < 1e-5);
     }
 
     #[test]
@@ -425,31 +701,233 @@ mod tests {
     }
 
     #[test]
-    fn contains_point_follows_shape_scale_and_rotation() {
-        let view: TestView = View::new()
-            .with(ViewNode::rectangle("bar", Vec2::new(4.0, 1.0)).at(Vec2::new(10.0, 0.0)))
-            .with(
-                ViewNode::rectangle("tilted", Vec2::new(4.0, 1.0))
-                    .with_rotation(std::f32::consts::FRAC_PI_2),
-            )
-            .with(ViewNode::circle("disc", 2.0).at(Vec2::new(0.0, 10.0)));
-        assert!(view.contains_point("bar", Vec2::new(11.5, 0.4)));
-        assert!(!view.contains_point("bar", Vec2::new(11.5, 0.6)));
-        assert!(view.contains_point("tilted", Vec2::new(0.4, 1.5)));
-        assert!(!view.contains_point("tilted", Vec2::new(1.5, 0.4)));
-        assert!(view.contains_point("disc", Vec2::new(0.0, 10.9)));
-        assert!(!view.contains_point("disc", Vec2::new(0.8, 10.8)));
-        assert!(!view.contains_point("missing", Vec2::ZERO));
+    fn transform_builders_take_transforms_vectors_and_quaternions() {
+        let node: ViewNode<()> = ViewNode::circle("n", 1.0)
+            .with_transform(Transform::from_xyz(1.0, 2.0, 3.0))
+            .scaled(Vec3::new(2.0, 3.0, 4.0))
+            .with_rotation(Quat::from_rotation_y(1.0))
+            .at(Vec3::new(5.0, 6.0, 7.0));
+        assert_eq!(node.transform.translation, Vec3::new(5.0, 6.0, 7.0));
+        assert_eq!(node.transform.scale, Vec3::new(2.0, 3.0, 4.0));
+        assert_eq!(node.transform.rotation, Quat::from_rotation_y(1.0));
+        let flat: ViewNode<()> = ViewNode::circle("n", 1.0)
+            .at_xy(Vec2::new(1.0, 2.0))
+            .with_z(3.0)
+            .scaled_xy(Vec2::new(4.0, 5.0))
+            .with_rotation_xy(0.5);
+        assert_eq!(flat.transform.translation, Vec3::new(1.0, 2.0, 3.0));
+        assert_eq!(flat.transform.scale, Vec3::new(4.0, 5.0, 1.0));
+        assert_eq!(flat.transform.rotation, Quat::from_rotation_z(0.5));
+        assert!(flat.casts_shadow && !flat.casts_shadow(false).casts_shadow);
     }
 
     #[test]
-    fn set_position_accounts_for_the_parent() {
+    fn set_world_transform_accounts_for_the_parent() {
         let mut view: TestView = View::new()
-            .with(ViewNode::rectangle("group", Vec2::ONE).at(Vec2::new(10.0, 0.0)))
+            .with(ViewNode::rectangle("group", Vec2::ONE).at_xy(Vec2::new(10.0, 0.0)))
             .with(ViewNode::circle("item", 1.0).with_parent("group"));
-        assert!(view.set_position("item", Vec2::new(15.0, 4.0)));
-        let local = view.get("item").unwrap().transform.translation.truncate();
-        assert!(local.distance(Vec2::new(5.0, 4.0)) < 1e-4);
-        assert!(!view.set_position("missing", Vec2::ZERO));
+        assert!(view.set_world_transform("item", Transform::from_xyz(15.0, 4.0, 2.0)));
+        let local = view.transform("item").unwrap().translation;
+        assert!(local.distance(Vec3::new(5.0, 4.0, 2.0)) < 1e-4);
+        assert!(!view.set_world_transform("missing", Transform::IDENTITY));
+        assert!(view.transform("missing").is_none());
+    }
+
+    #[test]
+    fn a_ray_hits_a_flat_rectangle_from_above() {
+        let view: TestView = View::new()
+            .with(ViewNode::rectangle("bar", Vec2::new(4.0, 1.0)).at_xy(Vec2::new(10.0, 0.0)))
+            .with(
+                ViewNode::rectangle("tilted", Vec2::new(4.0, 1.0))
+                    .with_rotation_xy(std::f32::consts::FRAC_PI_2),
+            );
+        assert_eq!(view.hit_test(down_at(11.5, 0.4)).unwrap().id, "bar");
+        assert!(view.hit_test(down_at(11.5, 0.6)).is_none());
+        assert_eq!(view.hit_test(down_at(0.4, 1.5)).unwrap().id, "tilted");
+        assert!(view.hit_test(down_at(1.5, 0.4)).is_none());
+        let hit = view.hit_test(down_at(11.5, 0.4)).unwrap();
+        assert!((hit.distance - 10.0).abs() < 0.05);
+        assert!(hit.point.distance(Vec3::new(11.5, 0.4, 0.0)) < 0.05);
+    }
+
+    #[test]
+    fn round_nodes_are_hit_as_ellipses_and_spheres() {
+        let view: TestView =
+            View::new().with(ViewNode::circle("disc", 2.0).at_xy(Vec2::new(0.0, 10.0)));
+        assert!(view.hit_test(down_at(0.0, 10.9)).is_some());
+        assert!(view.hit_test(down_at(0.8, 10.8)).is_none());
+    }
+
+    #[cfg(feature = "pbr")]
+    #[test]
+    fn a_mesh_of_your_own_is_hit_inside_its_measured_bounds() {
+        let mesh = MeshGeometry::new(
+            1,
+            bevy::prelude::Mesh::from(bevy::prelude::Rectangle::new(4.0, 2.0)),
+        );
+        let view: TestView = View::new().with(ViewNode::mesh("terrain", mesh).at(Vec3::X * 10.0));
+        assert_eq!(view.hit_test(down_at(11.5, 0.8)).unwrap().id, "terrain");
+        assert!(view.hit_test(down_at(11.5, 1.2)).is_none());
+        assert!(view.hit_test(down_at(12.5, 0.0)).is_none());
+    }
+
+    #[test]
+    fn a_node_flattened_to_nothing_is_never_hit() {
+        let view: TestView = View::new().with(ViewNode::rectangle("gone", Vec2::new(0.0, 0.0)));
+        assert!(view.hit_test(down_at(0.0, 0.0)).is_none());
+        let flat: TestView = View::new()
+            .with(ViewNode::rectangle("flat", Vec2::ONE).scaled(Vec3::new(1.0, 1.0, 0.0)));
+        assert!(flat.hit_test(down_at(0.0, 0.0)).is_none());
+    }
+
+    #[test]
+    fn the_nearest_of_two_overlapping_nodes_wins() {
+        let view: TestView = View::new()
+            .with(ViewNode::rectangle("far", Vec2::splat(2.0)).with_z(-1.0))
+            .with(ViewNode::rectangle("near", Vec2::splat(2.0)).with_z(1.0));
+        let hit = view.hit_test(down_at(0.0, 0.0)).unwrap();
+        assert_eq!(hit.id, "near");
+        assert!((hit.distance - 9.0).abs() < 0.05);
+        let tie: TestView = View::new()
+            .with(ViewNode::rectangle("below", Vec2::splat(2.0)))
+            .with(ViewNode::rectangle("above", Vec2::splat(2.0)));
+        assert_eq!(tie.hit_test(down_at(0.0, 0.0)).unwrap().id, "above");
+    }
+
+    #[test]
+    fn a_layer_filter_hides_the_nodes_of_other_layers_from_a_ray() {
+        let view: TestView = View::new()
+            .with(ViewNode::rectangle("scene", Vec2::splat(2.0)))
+            .with(
+                ViewNode::rectangle("hud", Vec2::splat(2.0))
+                    .on_layer(2)
+                    .with_z(1.0),
+            );
+        let ray = down_at(0.0, 0.0);
+        assert_eq!(view.hit_test(ray).unwrap().id, "hud");
+        assert_eq!(view.hit_test_in(ray, |layer| layer == 2).unwrap().id, "hud");
+        assert_eq!(
+            view.hit_test_in(ray, |layer| layer == 0).unwrap().id,
+            "scene"
+        );
+        assert!(view.hit_test_in(ray, |layer| layer == 1).is_none());
+    }
+
+    #[test]
+    fn rendering_mode_and_layer_survive_a_rebind() {
+        let node: ViewNode<()> = ViewNode::circle("n", 1.0).spatial().on_layer(3);
+        assert_eq!(node.rendering, Some(Rendering::Spatial));
+        let rebound = node.rebind::<u8>();
+        assert_eq!(rebound.rendering, Some(Rendering::Spatial));
+        assert_eq!(rebound.layer, 3);
+        assert_eq!(ViewNode::<()>::circle("n", 1.0).layer, 0);
+        assert_eq!(ViewNode::<()>::circle("n", 1.0).rendering, None);
+    }
+
+    #[test]
+    fn a_ray_that_starts_inside_hits_at_distance_zero() {
+        let view: TestView = View::new().with(ViewNode::circle("big", 100.0));
+        let inside = Ray3d::new(Vec3::ZERO, Dir3::NEG_Z);
+        assert_eq!(view.hit_test(inside).map(|hit| hit.distance), Some(0.0));
+    }
+
+    #[test]
+    fn a_child_resolves_to_its_draggable_ancestor() {
+        use crate::ops::state;
+        let view: TestView = View::new()
+            .with(ViewNode::circle("root", 1.0).draggable(|| state(())))
+            .with(ViewNode::circle("middle", 1.0).with_parent("root"))
+            .with(ViewNode::circle("leaf", 1.0).with_parent("middle"))
+            .with(ViewNode::circle("orphan", 1.0));
+        assert_eq!(view.draggable_ancestor("leaf").unwrap().id, "root");
+        assert_eq!(view.draggable_ancestor("root").unwrap().id, "root");
+        assert!(view.draggable_ancestor("orphan").is_none());
+        assert!(view.draggable_ancestor("missing").is_none());
+    }
+
+    #[test]
+    fn nodes_carry_their_drag_space() {
+        use crate::ops::state;
+        let space = DragSpace::axis(Vec3::ZERO, Dir3::X);
+        let node: ViewNode<()> = ViewNode::circle("n", 1.0).draggable_in(space, || state(()));
+        assert!(node.drag.is_some());
+        assert_eq!(node.drag_space, Some(space));
+        assert_eq!(
+            ViewNode::<()>::circle("n", 1.0).in_space(space).drag_space,
+            Some(space)
+        );
+        assert_eq!(node.rebind::<u8>().drag_space, Some(space));
+    }
+
+    #[test]
+    fn opacity_multiplies_through_ancestors() {
+        let view: TestView = View::new()
+            .with(ViewNode::circle("group", 1.0).with_opacity(0.5))
+            .with(
+                ViewNode::circle("inner", 1.0)
+                    .with_parent("group")
+                    .with_opacity(0.5),
+            )
+            .with(ViewNode::circle("leaf", 1.0).with_parent("inner"))
+            .with(ViewNode::circle("loose", 1.0).with_parent("gone"));
+        let opacities = view.effective_opacities();
+        assert!((opacities["group"] - 0.5).abs() < 1e-6);
+        assert!((opacities["inner"] - 0.25).abs() < 1e-6);
+        assert!((opacities["leaf"] - 0.25).abs() < 1e-6);
+        assert!((opacities["loose"] - 1.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn opacity_is_clamped() {
+        let node: ViewNode<()> = ViewNode::circle("n", 1.0).with_opacity(3.0);
+        assert!((node.opacity - 1.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn parent_cycles_do_not_hang_the_opacity() {
+        let view: TestView = View::new()
+            .with(ViewNode::circle("a", 1.0).with_parent("b"))
+            .with(ViewNode::circle("b", 1.0).with_parent("a"));
+        assert_eq!(view.effective_opacities().len(), 2);
+    }
+
+    #[cfg(feature = "gradmesh")]
+    #[test]
+    fn grad_nodes_are_hit_by_their_real_size() {
+        let view: TestView = View::new().with(ViewNode::sphere("ball", 2.0)).with(
+            ViewNode::cuboid("block", Vec3::new(4.0, 2.0, 2.0), 0.0).at_xy(Vec2::new(10.0, 0.0)),
+        );
+        assert!(view.hit_test(down_at(1.4, 1.4)).is_some());
+        assert!(view.hit_test(down_at(1.6, 1.6)).is_none());
+        assert_eq!(view.hit_test(down_at(11.9, 0.9)).unwrap().id, "block");
+        assert!(view.hit_test(down_at(12.1, 0.0)).is_none());
+    }
+
+    #[cfg(feature = "gradmesh")]
+    #[test]
+    fn scale_still_sizes_grad_nodes() {
+        let view: TestView = View::new()
+            .with(ViewNode::cuboid("block", Vec3::ONE, 0.0).scaled_xy(Vec2::new(4.0, 1.0)));
+        assert!(view.hit_test(down_at(1.9, 0.4)).is_some());
+        assert!(view.hit_test(down_at(0.0, 0.6)).is_none());
+    }
+
+    #[cfg(feature = "gradmesh")]
+    #[test]
+    fn a_rotated_cuboid_is_hit_by_its_oriented_bounds() {
+        // A bar 4 long and 1 high, turned a quarter around Z, is 1 wide and 4 high.
+        let view: TestView = View::new().with(
+            ViewNode::cuboid("bar", Vec3::new(4.0, 1.0, 1.0), 0.0)
+                .with_rotation_xy(std::f32::consts::FRAC_PI_2),
+        );
+        assert!(view.hit_test(down_at(0.3, 1.8)).is_some());
+        assert!(view.hit_test(down_at(1.8, 0.3)).is_none());
+        // Tilted around X and looked at from the side, it is hit by its depth.
+        let tilted: TestView = View::new().with(
+            ViewNode::cuboid("block", Vec3::new(2.0, 2.0, 2.0), 0.0)
+                .with_rotation(Quat::from_rotation_x(std::f32::consts::FRAC_PI_4)),
+        );
+        let side = Ray3d::new(Vec3::new(-10.0, 0.0, 0.0), Dir3::X);
+        assert!((tilted.hit_test(side).unwrap().distance - 9.0).abs() < 0.05);
     }
 }

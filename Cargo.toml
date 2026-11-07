@@ -1,6 +1,6 @@
 [package]
 name = "bevy_composable_dragging"
-version = "0.1.0"
+version = "0.1.1"
 authors = ["Jessica Collins (https://github.com/xenacool)"]
 edition = "2024"
 rust-version = "1.87"
@@ -35,14 +35,16 @@ cast_precision_loss = "allow"
 default = []
 # PBR materials and mesh picking backend for 3D scenes.
 pbr = ["bevy/bevy_pbr", "bevy/mesh_picking"]
-# Gradient shapes from `bevy_gradmesh`, drawn as billboards in a 3D scene.
-shapes-2d = ["dep:bevy_gradmesh", "pbr"]
+# Any `bevy_gradmesh` shape as node geometry (`Geometry::Grad`).
+gradmesh = ["dep:bevy_gradmesh", "pbr"]
+# Flat gradient shapes from `bevy_gradmesh` for 2D scenes (`Rendering::Flat` with a `Camera2d`).
+shapes-2d = ["gradmesh"]
 # Gradient shapes from `bevy_gradmesh` for 3D scenes.
-shapes-3d = ["dep:bevy_gradmesh", "pbr"]
+shapes-3d = ["gradmesh"]
 
 [dependencies]
 bevy = { version = "0.20", default-features = false, features = ["bevy_color"] }
-bevy_gradmesh = { version = "0.2.0", optional = true }
+bevy_gradmesh = { version = "0.2.4", optional = true }
 
 # Examples need windowing, tonemapping LUT textures and PNG support which the library does not require.
 [dev-dependencies]
@@ -92,6 +94,7 @@ required-features = ["pbr"]
 name = "lists_in_lists"
 path = "examples/lists_in_lists.rs"
 required-features = ["pbr"]
+test = true
 
 [[example]]
 name = "tessellations"
@@ -112,6 +115,18 @@ required-features = ["pbr"]
 name = "gradient_hanoi_3d"
 path = "examples/gradient_hanoi_3d.rs"
 required-features = ["shapes-3d"]
+
+[[example]]
+name = "tactile_tessellations"
+path = "examples/tactile_tessellations.rs"
+required-features = ["shapes-2d"]
+test = true
+
+[[example]]
+name = "gizmo_3d"
+path = "examples/gizmo_3d.rs"
+required-features = ["shapes-3d"]
+test = true
 
 [[example]]
 name = "gradient_kanban_2d"

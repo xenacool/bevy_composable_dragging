@@ -158,7 +158,7 @@ fn run_script(
     mut pressed: Local<bool>,
     mut previous: Local<Option<Vec2>>,
     windows: Query<(Entity, &Window), With<PrimaryWindow>>,
-    cameras: Query<(&Camera, &GlobalTransform), With<Camera3d>>,
+    cameras: Query<(&Camera, &GlobalTransform), With<super::SceneCamera>>,
     mut inputs: MessageWriter<PointerInput>,
 ) {
     if *warm_up < WARM_UP_FRAMES {

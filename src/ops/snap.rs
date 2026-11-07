@@ -61,14 +61,19 @@ impl<S: Clone + Send + Sync + 'static> DragSpec<S> {
             let mut inner = self.compile(context);
             let view_fn = context.view_fn();
             let dragged = context.dragged().to_owned();
+            let space = *context.space();
             let start = context.start_state().clone();
             let chain = chain.clone();
             Box::new(move |pointer| {
                 let mut frame = inner(pointer);
                 let settled = view_fn(&frame.drop_state);
                 let snapped = matches!(
-                    (frame.view.position(&dragged), settled.position(&dragged)),
-                    (Some(held), Some(home)) if held.distance(home) <= radius
+                    (
+                        frame.view.world_position(&dragged),
+                        settled.world_position(&dragged)
+                    ),
+                    (Some(held), Some(home))
+                        if space.project_point(held).distance(space.project_point(home)) <= radius
                 );
                 if snapped {
                     frame.view = settled;
@@ -105,6 +110,7 @@ impl<S: Clone + PartialEq + Send + Sync + 'static> DragSpec<S> {
 
 #[cfg(test)]
 mod tests {
+    use crate::space::Pointer;
     use bevy::math::Vec2;
 
     use super::SnapOptions;
@@ -117,7 +123,7 @@ mod tests {
             .with_floating()
             .with_snap_radius(2.0);
         let mut behavior = spec.compile(&context());
-        let frame = behavior(Vec2::new(9.0, 1.0));
+        let frame = behavior(Pointer::from(Vec2::new(9.0, 1.0)));
         assert_eq!(frame.drop_state, Slot(1));
         let item = frame.view.world_transform("item").unwrap().translation;
         assert!(item.truncate().distance(Vec2::new(10.0, 0.0)) < 1e-4);
@@ -130,13 +136,14 @@ mod tests {
             .with_floating()
             .with_snap_radius(2.0);
         let mut behavior = spec.compile(&context());
-        let frame = behavior(Vec2::new(7.0, 0.0));
+        let frame = behavior(Pointer::from(Vec2::new(7.0, 0.0)));
         assert_eq!(frame.drop_state, Slot(1));
         assert!(
             frame
                 .view
-                .position("item")
+                .world_position("item")
                 .unwrap()
+                .truncate()
                 .distance(Vec2::new(7.0, 0.0))
                 < 1e-4
         );
@@ -151,8 +158,8 @@ mod tests {
     #[test]
     fn the_default_options_change_nothing() {
         let mut plain = snapping_with(SnapOptions::new()).compile(&context());
-        let snapped = plain(Vec2::new(9.0, 1.0));
-        let floating = plain(Vec2::new(7.0, 0.0));
+        let snapped = plain(Pointer::from(Vec2::new(9.0, 1.0)));
+        let floating = plain(Pointer::from(Vec2::new(7.0, 0.0)));
         assert_eq!(snapped.branch, floating.branch);
         assert!(snapped.chain.is_none() && snapped.branch_transition.is_none());
     }
@@ -161,8 +168,8 @@ mod tests {
     fn a_transition_makes_snapping_a_branch_switch() {
         let mut behavior =
             snapping_with(SnapOptions::new().with_transition(0.2)).compile(&context());
-        let snapped = behavior(Vec2::new(9.0, 1.0));
-        let floating = behavior(Vec2::new(7.0, 0.0));
+        let snapped = behavior(Pointer::from(Vec2::new(9.0, 1.0)));
+        let floating = behavior(Pointer::from(Vec2::new(7.0, 0.0)));
         assert_ne!(snapped.branch, floating.branch);
         assert_eq!(snapped.branch_transition, Some(0.2));
         assert_eq!(floating.branch_transition, Some(0.2));
@@ -172,15 +179,15 @@ mod tests {
     fn chaining_continues_the_drag_once_snapped_to_another_state() {
         let mut behavior = snapping_with(SnapOptions::new().with_chain()).compile(&context());
         assert!(
-            behavior(Vec2::new(9.0, 1.0)).chain.is_some(),
+            behavior(Pointer::from(Vec2::new(9.0, 1.0))).chain.is_some(),
             "snapped to slot 1"
         );
         assert!(
-            behavior(Vec2::new(7.0, 0.0)).chain.is_none(),
+            behavior(Pointer::from(Vec2::new(7.0, 0.0))).chain.is_none(),
             "not snapped yet"
         );
         assert!(
-            behavior(Vec2::new(1.0, 0.0)).chain.is_none(),
+            behavior(Pointer::from(Vec2::new(1.0, 0.0))).chain.is_none(),
             "snapped to the start state"
         );
     }
@@ -188,7 +195,7 @@ mod tests {
     #[test]
     fn the_chain_blends_over_the_snap_transition() {
         let options = SnapOptions::new().with_transition(0.3).with_chain();
-        let frame = snapping_with(options).compile(&context())(Vec2::new(9.0, 1.0));
+        let frame = snapping_with(options).compile(&context())(Pointer::from(Vec2::new(9.0, 1.0)));
         assert_eq!(frame.chain.unwrap().transition, Some(0.3));
     }
 }

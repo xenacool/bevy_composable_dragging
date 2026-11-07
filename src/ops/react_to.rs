@@ -40,6 +40,7 @@ where
 
 #[cfg(test)]
 mod tests {
+    use crate::space::Pointer;
     use std::sync::Arc;
     use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -58,9 +59,9 @@ mod tests {
             |slot| state(Slot(*slot)),
         );
         let mut behavior = spec.compile(&context());
-        assert_eq!(behavior(Vec2::ZERO).drop_state, Slot(1));
+        assert_eq!(behavior(Pointer::from(Vec2::ZERO)).drop_state, Slot(1));
         target.store(2, Ordering::SeqCst);
-        assert_eq!(behavior(Vec2::ZERO).drop_state, Slot(2));
+        assert_eq!(behavior(Pointer::from(Vec2::ZERO)).drop_state, Slot(2));
     }
 
     #[test]
@@ -77,12 +78,12 @@ mod tests {
         );
         let mut behavior = spec.compile(&context());
         for _ in 0..3 {
-            behavior(Vec2::ZERO);
+            behavior(Pointer::from(Vec2::ZERO));
         }
         assert_eq!(builds.load(Ordering::SeqCst), 1);
         target.store(1, Ordering::SeqCst);
-        behavior(Vec2::ZERO);
-        behavior(Vec2::ZERO);
+        behavior(Pointer::from(Vec2::ZERO));
+        behavior(Pointer::from(Vec2::ZERO));
         assert_eq!(builds.load(Ordering::SeqCst), 2);
     }
 }

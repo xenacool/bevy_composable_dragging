@@ -197,6 +197,7 @@ fn spawn_title_overlay(
                 ..default()
             },
             Transform::from_xyz(width / 2.0 - 100.0, height / 2.0 - 30.0, 1000.0),
+            bevy::camera::visibility::RenderLayers::layer(super::OVERLAY_LAYER),
             TitleOverlay,
             Name::new("Title Overlay Text"),
         ));
@@ -211,6 +212,7 @@ fn spawn_title_overlay(
                 ..default()
             },
             Transform::from_xyz(width / 2.0 - 100.0, height / 2.0 - 6.0, 1000.0),
+            bevy::camera::visibility::RenderLayers::layer(super::OVERLAY_LAYER),
             TitleOverlay,
             Name::new("Title Overlay Description"),
         ));

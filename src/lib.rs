@@ -6,7 +6,11 @@
 //! synthesizes the preview while dragging and the drop state on release.
 
 mod behavior;
+mod blend;
 pub mod constraint;
+mod geometry;
+#[cfg(feature = "gradmesh")]
+pub mod gizmo;
 #[cfg(feature = "pbr")]
 mod input;
 mod lerp;
@@ -17,15 +21,21 @@ mod param;
 mod plugin;
 #[cfg(feature = "pbr")]
 mod render;
+mod rendering;
 #[cfg(feature = "pbr")]
 mod shapes;
 mod solver;
+mod space;
 mod spec;
 mod transition;
 mod view;
 
 pub use behavior::{Chaining, DragBehavior, DragContext, Frame, ViewFn};
+pub use blend::{Blend, Presence};
 pub use constraint::Constraint;
+#[cfg(feature = "pbr")]
+pub use geometry::MeshGeometry;
+pub use geometry::{Bounds, Geometry};
 #[cfg(feature = "pbr")]
 pub use input::DragPlane;
 pub use lerp::{blend_views, lerp_transform, lerp_views};
@@ -33,5 +43,7 @@ pub use model::DragModel;
 pub use param::Param;
 #[cfg(feature = "pbr")]
 pub use plugin::DraggablePlugin;
+pub use rendering::Rendering;
+pub use space::{DragSpace, Pointer};
 pub use spec::DragSpec;
-pub use view::{DragFactory, NodeId, ShapeKey, View, ViewNode};
+pub use view::{DragFactory, Hit, NodeId, View, ViewNode};

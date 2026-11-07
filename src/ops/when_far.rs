@@ -47,6 +47,7 @@ impl<S: Clone + Send + Sync + 'static> DragSpec<S> {
 
 #[cfg(test)]
 mod tests {
+    use crate::space::Pointer;
     use bevy::math::Vec2;
 
     use crate::ops::testing::{Slot, context};
@@ -55,9 +56,9 @@ mod tests {
     fn switches_to_the_background_when_far_from_the_foreground() {
         let spec = closest_states([Slot(0), Slot(1)]).when_far(state(Slot(2)), 5.0);
         let mut behavior = spec.compile(&context());
-        let near = behavior(Vec2::new(2.0, 0.0));
+        let near = behavior(Pointer::from(Vec2::new(2.0, 0.0)));
         assert_eq!(near.drop_state, Slot(0));
-        let far = behavior(Vec2::new(10.0, 40.0));
+        let far = behavior(Pointer::from(Vec2::new(10.0, 40.0)));
         assert_eq!(far.drop_state, Slot(2));
         assert_ne!(near.branch, far.branch);
     }
@@ -67,7 +68,7 @@ mod tests {
         let spec = closest_states([Slot(0)]).when_far_hysteresis(state(Slot(2)), 3.0, 6.0);
         let mut behavior = spec.compile(&context());
         let drop = |behavior: &mut crate::DragBehavior<Slot>, y: f32| {
-            behavior(Vec2::new(0.0, y)).drop_state.0
+            behavior(Pointer::from(Vec2::new(0.0, y))).drop_state.0
         };
         assert_eq!(drop(&mut behavior, 4.0), 0, "starts in the foreground");
         assert_eq!(drop(&mut behavior, 7.0), 2, "beyond gap_out");

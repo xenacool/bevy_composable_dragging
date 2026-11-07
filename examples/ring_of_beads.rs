@@ -30,7 +30,7 @@ fn view(ring: &Ring) -> View<Ring> {
     for slot in 0..BEADS {
         view.push(
             ViewNode::circle(format!("slot-{slot}"), 0.2)
-                .at(slot_position(slot))
+                .at_xy(slot_position(slot))
                 .with_color(Color::srgb(0.35, 0.37, 0.42)),
         );
     }
@@ -39,7 +39,7 @@ fn view(ring: &Ring) -> View<Ring> {
         let hue = bead as f32 * 360.0 / BEADS as f32;
         view.push(
             ViewNode::circle(format!("bead-{bead}"), 0.8)
-                .at(slot_position(slot))
+                .at_xy(slot_position(slot))
                 .with_z(0.1)
                 .with_color(Color::hsl(hue, 0.7, 0.55))
                 .draggable(move || {

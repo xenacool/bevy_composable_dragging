@@ -66,14 +66,14 @@ fn view(corner: &Corner) -> View<Corner> {
     for other in CORNERS {
         view.push(
             ViewNode::circle(format!("mark-{}", other.id()), 0.35)
-                .at(other.position())
+                .at_xy(other.position())
                 .with_z(0.05)
                 .with_color(other.color()),
         );
     }
     view.with(
         ViewNode::circle("knob", 1.0)
-            .at(corner.position())
+            .at_xy(corner.position())
             .with_z(0.1)
             .with_color(corner.color())
             .draggable(|| {

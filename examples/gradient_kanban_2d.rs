@@ -5,14 +5,17 @@
 //!
 //! Every card carries its own gradient `Style`, which changes with the column it sits in. While a
 //! card is dragged, the engine blends the styles of the previewed columns with `Style::lerp`
-//! from `bevy_gradmesh` 0.2.0, so the gradient shifts as the card travels.
+//! from `bevy_gradmesh`, so the gradient shifts as the card travels.
+//!
+//! The scene is a plain `Camera2d`: `Rendering::Flat` draws every node as a `Mesh2d` with
+//! `GradMeshMaterial2d`, and the `z` of a node orders it.
 //!
 //! Run with `cargo run --example gradient_kanban_2d --features shapes-2d`.
 
 use bevy::prelude::*;
 use bevy_composable_dragging::ops::closest_states;
-use bevy_composable_dragging::{DraggablePlugin, ShapeKey, View, ViewNode};
-use bevy_gradmesh::Style;
+use bevy_composable_dragging::{DraggablePlugin, Rendering, View, ViewNode};
+use bevy_gradmesh::{Shape, ShapeDetail, Style};
 
 mod common;
 use common::screenshot::AutoScreenshotPlugin;
@@ -77,21 +80,26 @@ fn card_style(card: usize, column: usize) -> Style {
     )
 }
 
+/// A unit gradient square, scaled by the caller.
+fn rectangle(id: String) -> ViewNode<Board> {
+    ViewNode::grad(id, Shape::rectangle(Vec2::ONE, ShapeDetail::Medium))
+}
+
 fn view(board: &Board) -> View<Board> {
     let mut view = View::new();
     for (column, x) in COLUMN_X.iter().enumerate() {
         view.push(
-            ViewNode::new(format!("column-{column}"), ShapeKey::GradRectangle)
-                .at(Vec2::new(*x, 0.0))
+            rectangle(format!("column-{column}"))
+                .at_xy(Vec2::new(*x, 0.0))
                 .with_color(Color::srgb(0.08, 0.1, 0.2))
-                .scaled(COLUMN_SIZE),
+                .scaled_xy(COLUMN_SIZE),
         );
         view.push(
-            ViewNode::new(format!("marker-{column}"), ShapeKey::GradRing)
-                .at(Vec2::new(*x, COLUMN_SIZE.y / 2.0 - 0.4))
+            ViewNode::ring(format!("marker-{column}"), 0.5, 0.32)
+                .at_xy(Vec2::new(*x, COLUMN_SIZE.y / 2.0 - 0.4))
                 .with_z(0.1)
                 .with_color(Color::hsl(column as f32 * 120.0 + 20.0, 0.9, 0.45))
-                .scaled(Vec2::splat(0.5)),
+                .scaled_xy(Vec2::splat(0.5)),
         );
     }
     for (column, cards) in board.columns.iter().enumerate() {
@@ -99,12 +107,12 @@ fn view(board: &Board) -> View<Board> {
             let snapshot = board.clone();
             let hue = card as f32 * 47.0 + column as f32 * 20.0;
             view.push(
-                ViewNode::new(format!("card-{card}"), ShapeKey::GradRectangle)
-                    .at(slot_position(column, slot))
+                rectangle(format!("card-{card}"))
+                    .at_xy(slot_position(column, slot))
                     .with_z(0.2)
                     .with_color(Color::hsl(hue, 0.85, 0.4))
                     .with_style(card_style(card, column))
-                    .scaled(CARD_SIZE)
+                    .scaled_xy(CARD_SIZE)
                     .draggable(move || {
                         closest_states(placements(&snapshot, card))
                             .with_floating()
@@ -124,7 +132,7 @@ fn main() {
         position_of(&board, 1).map_or(Vec2::ZERO, |(column, slot)| slot_position(column, slot));
     App::new()
         .add_plugins(common::default_plugins("gradient_kanban_2d"))
-        .add_plugins(DraggablePlugin::new(board, view))
+        .add_plugins(DraggablePlugin::new(board, view).with_rendering(Rendering::Flat))
         .add_plugins(ScriptedDragPlugin::straight(
             from,
             slot_position(1, 1) + Vec2::new(0.3, 0.45),
@@ -136,14 +144,7 @@ fn main() {
                 .animation(600),
         )
         .add_systems(Startup, |mut commands: Commands| {
-            common::spawn_cameras(&mut commands, 8.0);
-            commands.spawn((
-                DirectionalLight {
-                    illuminance: 2_500.0,
-                    ..default()
-                },
-                Transform::from_xyz(0.0, 2.0, 8.0).looking_at(Vec3::ZERO, Vec3::Y),
-            ));
+            common::spawn_cameras_2d(&mut commands, 8.0);
         })
         .run();
 }

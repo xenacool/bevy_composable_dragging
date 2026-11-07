@@ -33,13 +33,13 @@ fn view(state: &Slider) -> View<Slider> {
         )
         .with(
             ViewNode::rectangle("fill", Vec2::new(fill_width, 0.3))
-                .at(Vec2::new((fill_width - TRACK_WIDTH) / 2.0, 0.0))
+                .at_xy(Vec2::new((fill_width - TRACK_WIDTH) / 2.0, 0.0))
                 .with_z(0.05)
                 .with_color(Color::srgb(0.3, 0.7, 0.45)),
         )
         .with(
             ViewNode::circle("knob", 0.9)
-                .at(knob_position(state.value))
+                .at_xy(knob_position(state.value))
                 .with_z(0.1)
                 .with_color(Color::srgb(0.95, 0.6, 0.2))
                 .draggable(move || {

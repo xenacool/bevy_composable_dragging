@@ -3,19 +3,31 @@
 use std::collections::{HashMap, HashSet};
 use std::marker::PhantomData;
 
+use bevy::camera::visibility::RenderLayers;
 use bevy::prelude::*;
 
+use crate::geometry::Geometry;
 use crate::model::DragModel;
+use crate::rendering::Rendering;
 use crate::shapes::Looks;
-use crate::view::{NodeId, ShapeKey};
+use crate::view::{NodeId, ViewNode};
 
 /// Marks the entity that renders the view node with the given id.
 #[derive(Component)]
 pub(crate) struct DragNode<S: 'static> {
     pub(crate) id: NodeId,
     parent: Option<NodeId>,
-    shape: ShapeKey,
+    geometry: Geometry,
     color: LinearRgba,
+    #[cfg(feature = "gradmesh")]
+    style: Option<bevy_gradmesh::Style>,
+    /// The opacity the node was drawn with, multiplied through its ancestors.
+    opacity: f32,
+    casts_shadow: bool,
+    /// The rendering mode the entity was drawn with.
+    mode: Rendering,
+    /// The render layer of the entity.
+    layer: usize,
     /// Whether the entity is hidden because the preview removed its node during a drag.
     hidden: bool,
     state: PhantomData<fn() -> S>,
@@ -31,6 +43,17 @@ impl<S> Default for NodeEntities<S> {
     }
 }
 
+/// Whether the gradient style of `node` differs from the one it was drawn with.
+fn style_changed<S: 'static>(marker: &DragNode<S>, node: &ViewNode<S>) -> bool {
+    #[cfg(feature = "gradmesh")]
+    return marker.style != node.style;
+    #[cfg(not(feature = "gradmesh"))]
+    {
+        let _ = (marker, node);
+        false
+    }
+}
+
 /// Spawns, updates and despawns entities so they show the current view.
 pub(crate) fn sync_nodes<S: Clone + Send + Sync + 'static>(
     mut commands: Commands,
@@ -43,14 +66,17 @@ pub(crate) fn sync_nodes<S: Clone + Send + Sync + 'static>(
         return;
     }
     let view = model.view();
+    let opacities = view.effective_opacities();
     let ids: HashSet<&str> = view.nodes().iter().map(|node| node.id.as_ref()).collect();
     let mut reparent: Vec<(Entity, Option<NodeId>)> = Vec::new();
 
     for node in view.nodes() {
+        let opacity = opacities[node.id.as_ref()];
         let parent = node
             .parent
             .clone()
             .filter(|parent| ids.contains(parent.as_ref()));
+        let mode = looks.mode_of(node.rendering);
         if let Some(entity) = entities.0.get(&node.id).copied() {
             let Ok((mut marker, mut transform)) = nodes.get_mut(entity) else {
                 continue;
@@ -62,17 +88,30 @@ pub(crate) fn sync_nodes<S: Clone + Send + Sync + 'static>(
                 marker.hidden = false;
                 commands.entity(entity).insert(Visibility::Inherited);
             }
-            if marker.shape != node.shape
+            if marker.geometry != node.geometry
                 || marker.color != node.color
-                || Looks::has_own_style(node)
+                || style_changed(&marker, node)
+                || (marker.opacity - opacity).abs() > f32::EPSILON
+                || marker.casts_shadow != node.casts_shadow
+                || marker.mode != mode
+                || marker.layer != node.layer
             {
                 let mut entity_commands = commands.entity(entity);
-                if marker.shape != node.shape {
-                    entity_commands.insert(looks.mesh(node.shape));
+                if marker.geometry != node.geometry || marker.mode != mode {
+                    looks.apply_mesh(&mut entity_commands, &node.geometry, mode);
                 }
-                looks.apply_material(&mut entity_commands, node);
-                marker.shape = node.shape;
+                if marker.layer != node.layer {
+                    entity_commands.insert(RenderLayers::layer(node.layer));
+                }
+                looks.apply_material(&mut entity_commands, node, opacity, mode);
+                marker.geometry.clone_from(&node.geometry);
                 marker.color = node.color;
+                marker.opacity = opacity;
+                marker.casts_shadow = node.casts_shadow;
+                marker.mode = mode;
+                marker.layer = node.layer;
+                #[cfg(feature = "gradmesh")]
+                marker.style.clone_from(&node.style);
             }
             if marker.parent != parent {
                 marker.parent.clone_from(&parent);
@@ -81,18 +120,25 @@ pub(crate) fn sync_nodes<S: Clone + Send + Sync + 'static>(
         } else {
             let mut spawned = commands.spawn((
                 Name::new(node.id.to_string()),
-                looks.mesh(node.shape),
                 node.transform,
                 DragNode::<S> {
                     id: node.id.clone(),
                     parent: parent.clone(),
-                    shape: node.shape,
+                    geometry: node.geometry.clone(),
                     color: node.color,
+                    #[cfg(feature = "gradmesh")]
+                    style: node.style.clone(),
+                    opacity,
+                    casts_shadow: node.casts_shadow,
+                    mode,
+                    layer: node.layer,
                     hidden: false,
                     state: PhantomData,
                 },
+                RenderLayers::layer(node.layer),
             ));
-            looks.apply_material(&mut spawned, node);
+            looks.apply_mesh(&mut spawned, &node.geometry, mode);
+            looks.apply_material(&mut spawned, node, opacity, mode);
             let entity = spawned.id();
             entities.0.insert(node.id.clone(), entity);
             if parent.is_some() {
@@ -127,4 +173,225 @@ pub(crate) fn sync_nodes<S: Clone + Send + Sync + 'static>(
         commands.entity(*entity).despawn();
         false
     });
+}
+
+#[cfg(all(test, feature = "gradmesh"))]
+mod tests {
+    use bevy::asset::AssetPlugin;
+    use bevy::sprite_render::{ColorMaterial, MeshMaterial2d};
+    use bevy_gradmesh::{GradMeshMaterial, GradMeshMaterial2d, GradMeshMaterialPool};
+
+    use super::*;
+    use crate::geometry::MeshGeometry;
+    use crate::shapes::ShapeMeshes;
+    use crate::view::View;
+
+    fn app(rendering: Rendering) -> App {
+        app_with(rendering, || {
+            let mut view = View::new();
+            view.push(ViewNode::rectangle("flat", Vec2::ONE));
+            view.push(ViewNode::sphere("round", 0.5));
+            view
+        })
+    }
+
+    fn app_with(rendering: Rendering, build: fn() -> View<()>) -> App {
+        let mut app = App::new();
+        app.add_plugins(AssetPlugin::default())
+            .init_asset::<Mesh>()
+            .init_asset::<StandardMaterial>()
+            .init_asset::<GradMeshMaterial>()
+            .init_asset::<ColorMaterial>()
+            .init_asset::<GradMeshMaterial2d>()
+            .init_resource::<GradMeshMaterialPool>()
+            .init_resource::<ShapeMeshes>()
+            .init_resource::<NodeEntities<()>>()
+            .insert_resource(rendering)
+            .insert_resource(DragModel::new((), move |()| build()))
+            .add_systems(Update, sync_nodes::<()>);
+        app.update();
+        app
+    }
+
+    fn entity_of(app: &mut App, id: &str) -> Entity {
+        let name = Name::new(id.to_string());
+        app.world_mut()
+            .query::<(Entity, &Name)>()
+            .iter(app.world())
+            .find_map(|(entity, candidate)| (*candidate == name).then_some(entity))
+            .expect("the node is rendered")
+    }
+
+    #[test]
+    fn spatial_rendering_draws_3d_meshes() {
+        let mut app = app(Rendering::Spatial);
+        for id in ["flat", "round"] {
+            let entity = entity_of(&mut app, id);
+            let entity = app.world().entity(entity);
+            assert!(entity.contains::<Mesh3d>());
+            assert!(!entity.contains::<Mesh2d>());
+        }
+        let round = entity_of(&mut app, "round");
+        assert!(
+            app.world()
+                .entity(round)
+                .contains::<MeshMaterial3d<GradMeshMaterial>>()
+        );
+    }
+
+    #[test]
+    fn flat_rendering_draws_2d_meshes() {
+        let mut app = app(Rendering::Flat);
+        for id in ["flat", "round"] {
+            let entity = entity_of(&mut app, id);
+            let entity = app.world().entity(entity);
+            assert!(entity.contains::<Mesh2d>());
+            assert!(!entity.contains::<Mesh3d>());
+        }
+        let flat = entity_of(&mut app, "flat");
+        let round = entity_of(&mut app, "round");
+        assert!(
+            app.world()
+                .entity(flat)
+                .contains::<MeshMaterial2d<GradMeshMaterial2d>>()
+                || app
+                    .world()
+                    .entity(flat)
+                    .contains::<MeshMaterial2d<ColorMaterial>>()
+        );
+        assert!(
+            app.world()
+                .entity(round)
+                .contains::<MeshMaterial2d<GradMeshMaterial2d>>()
+        );
+    }
+
+    fn terrain_view() -> View<()> {
+        let mut view = View::new();
+        view.push(ViewNode::mesh(
+            "terrain",
+            MeshGeometry::new(1, Mesh::from(Rectangle::new(4.0, 4.0))),
+        ));
+        view
+    }
+
+    #[test]
+    fn a_mesh_of_your_own_is_drawn_in_both_modes_with_the_gradient_material() {
+        let mut spatial = app_with(Rendering::Spatial, terrain_view);
+        let entity = entity_of(&mut spatial, "terrain");
+        let entity = spatial.world().entity(entity);
+        assert!(entity.contains::<Mesh3d>() && !entity.contains::<Mesh2d>());
+        assert!(entity.contains::<MeshMaterial3d<GradMeshMaterial>>());
+
+        let mut flat = app_with(Rendering::Flat, terrain_view);
+        let entity = entity_of(&mut flat, "terrain");
+        let entity = flat.world().entity(entity);
+        assert!(entity.contains::<Mesh2d>() && !entity.contains::<Mesh3d>());
+        assert!(entity.contains::<MeshMaterial2d<GradMeshMaterial2d>>());
+    }
+
+    #[test]
+    fn meshes_of_your_own_share_an_asset_by_key_and_a_new_key_frees_the_old_one() {
+        let mesh =
+            |key| Geometry::Mesh(MeshGeometry::new(key, Mesh::from(Rectangle::new(1.0, 1.0))));
+        let mut shapes = ShapeMeshes::default();
+        let mut meshes = Assets::<Mesh>::default();
+        let first = shapes.get(&mesh(1), false, &mut meshes);
+        let again = shapes.get(&mesh(1), false, &mut meshes);
+        assert_eq!(first.id(), again.id(), "the same key shares the mesh");
+        let flat = shapes.get(&mesh(1), true, &mut meshes);
+        assert_ne!(
+            first.id(),
+            flat.id(),
+            "flat and spatial copies are separate"
+        );
+        let other = shapes.get(&mesh(2), false, &mut meshes);
+        assert_ne!(first.id(), other.id());
+        let old = first.id();
+        drop((first, again));
+        meshes.remove(old);
+        let rebuilt = shapes.get(&mesh(1), false, &mut meshes);
+        assert_ne!(rebuilt.id(), old, "a freed mesh is built again when needed");
+        assert!(meshes.contains(rebuilt.id()));
+    }
+
+    fn hud_over_scene() -> View<()> {
+        let mut view = View::new();
+        view.push(ViewNode::sphere("scene", 0.5));
+        view.push(ViewNode::disc("hud", 0.5).flat().on_layer(2));
+        view.push(ViewNode::rectangle("hud-child", Vec2::ONE).with_parent("hud"));
+        view
+    }
+
+    #[test]
+    fn a_node_overrides_the_rendering_mode_of_the_plugin() {
+        let mut app = app_with(Rendering::Spatial, hud_over_scene);
+        let scene = entity_of(&mut app, "scene");
+        let hud = entity_of(&mut app, "hud");
+        let child = entity_of(&mut app, "hud-child");
+        let world = app.world();
+        assert!(world.entity(scene).contains::<Mesh3d>());
+        assert!(!world.entity(scene).contains::<Mesh2d>());
+        assert!(world.entity(hud).contains::<Mesh2d>());
+        assert!(!world.entity(hud).contains::<Mesh3d>());
+        assert!(
+            world
+                .entity(hud)
+                .contains::<MeshMaterial2d<GradMeshMaterial2d>>()
+        );
+        assert!(
+            !world
+                .entity(hud)
+                .contains::<MeshMaterial3d<GradMeshMaterial>>()
+        );
+        // A node without an override follows the plugin, whatever its parent does.
+        assert!(world.entity(child).contains::<Mesh3d>());
+    }
+
+    #[test]
+    fn a_flat_plugin_default_can_be_overridden_by_a_spatial_node() {
+        fn view() -> View<()> {
+            let mut view = View::new();
+            view.push(ViewNode::sphere("flat", 0.5));
+            view.push(ViewNode::sphere("solid", 0.5).spatial());
+            view
+        }
+        let mut app = app_with(Rendering::Flat, view);
+        let flat = entity_of(&mut app, "flat");
+        let solid = entity_of(&mut app, "solid");
+        assert!(app.world().entity(flat).contains::<Mesh2d>());
+        assert!(app.world().entity(solid).contains::<Mesh3d>());
+        assert!(!app.world().entity(solid).contains::<Mesh2d>());
+    }
+
+    #[test]
+    fn nodes_get_the_render_layer_they_ask_for() {
+        let mut app = app_with(Rendering::Spatial, hud_over_scene);
+        for (id, layer) in [("scene", 0), ("hud", 2)] {
+            let entity = entity_of(&mut app, id);
+            assert_eq!(
+                app.world().entity(entity).get::<RenderLayers>(),
+                Some(&RenderLayers::layer(layer)),
+                "{id}"
+            );
+        }
+    }
+
+    #[test]
+    fn flat_and_spatial_nodes_of_one_shape_get_their_own_meshes() {
+        fn view() -> View<()> {
+            let mut view = View::new();
+            view.push(ViewNode::sphere("a", 0.5));
+            view.push(ViewNode::sphere("b", 0.5).flat());
+            view
+        }
+        let mut app = app_with(Rendering::Spatial, view);
+        let a = entity_of(&mut app, "a");
+        let b = entity_of(&mut app, "b");
+        let meshes = app.world().resource::<Assets<Mesh>>();
+        let spatial = &app.world().entity(a).get::<Mesh3d>().unwrap().0;
+        let flat = &app.world().entity(b).get::<Mesh2d>().unwrap().0;
+        assert_ne!(spatial.id(), flat.id());
+        assert!(meshes.contains(spatial.id()) && meshes.contains(flat.id()));
+    }
 }

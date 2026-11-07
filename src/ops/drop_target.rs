@@ -44,9 +44,8 @@ fn drop_target_measured<S: Clone + Send + Sync + 'static>(
         let view = context.render(&state);
         let state = state.clone();
         let target = target.clone();
-        let grab_offset = context.grab_offset();
-        Box::new(move |anchor| {
-            let inside = bounds.contains_point(&target, anchor + grab_offset);
+        Box::new(move |pointer| {
+            let inside = bounds.is_hit(&target, pointer.ray);
             let gap = if inside { 0.0 } else { f32::INFINITY };
             Frame::new(view.clone(), state.clone(), gap)
         })
@@ -55,7 +54,8 @@ fn drop_target_measured<S: Clone + Send + Sync + 'static>(
 
 #[cfg(test)]
 mod tests {
-    use bevy::math::Vec2;
+    use crate::space::Pointer;
+    use bevy::math::{Vec2, Vec3};
 
     use super::*;
     use crate::ops::testing::{Slot, context};
@@ -63,20 +63,27 @@ mod tests {
     #[test]
     fn the_gap_is_zero_inside_the_target_and_infinite_outside() {
         let mut behavior = drop_target("bin", Slot(2)).compile(&context());
-        let inside = behavior(Vec2::new(105.0, 5.0));
+        let inside = behavior(Pointer::from(Vec2::new(105.0, 5.0)));
         assert_eq!(inside.gap, 0.0);
         assert_eq!(inside.drop_state, Slot(2));
-        assert!(behavior(Vec2::new(50.0, 0.0)).gap.is_infinite());
+        assert!(
+            behavior(Pointer::from(Vec2::new(50.0, 0.0)))
+                .gap
+                .is_infinite()
+        );
     }
 
     #[test]
     fn the_pointer_not_the_node_origin_is_tested() {
         // The node was grabbed 10 units left of its origin, so the pointer is 10 to the right
         // of the position the behavior receives.
-        let context = context().with_grab_offset(Vec2::new(10.0, 0.0));
+        let context = context().with_grab_offset(Vec3::new(10.0, 0.0, 0.0));
         let mut behavior = drop_target("bin", Slot(2)).compile(&context);
-        assert_eq!(behavior(Vec2::new(95.0, 0.0)).gap, 0.0);
-        assert!(behavior(Vec2::new(101.0, 0.0)).gap.is_infinite());
+        let grabbed = |real: f32| {
+            Pointer::at(Vec3::new(real, 0.0, 0.0)).moved_to(Vec3::new(real - 10.0, 0.0, 0.0))
+        };
+        assert_eq!(behavior(grabbed(105.0)).gap, 0.0);
+        assert!(behavior(grabbed(111.0)).gap.is_infinite());
     }
 
     #[test]
@@ -88,22 +95,35 @@ mod tests {
             let x = if slot.0 == 2 { 200.0 } else { 100.0 };
             View::new()
                 .with(ViewNode::circle("item", 1.0))
-                .with(ViewNode::rectangle("bin", Vec2::new(20.0, 20.0)).at(Vec2::new(x, 0.0)))
+                .with(ViewNode::rectangle("bin", Vec2::new(20.0, 20.0)).at_xy(Vec2::new(x, 0.0)))
         };
         let context = DragContext::new(std::sync::Arc::new(view), "item".into(), Slot(0));
         let mut at_start = drop_target("bin", Slot(2)).compile(&context);
-        assert_eq!(at_start(Vec2::new(100.0, 0.0)).gap, 0.0);
+        assert_eq!(at_start(Pointer::from(Vec2::new(100.0, 0.0))).gap, 0.0);
         let mut in_target_state =
             drop_target_with_bounds("bin", Slot(2), Slot(2)).compile(&context);
-        assert_eq!(in_target_state(Vec2::new(200.0, 0.0)).gap, 0.0);
-        assert!(in_target_state(Vec2::new(100.0, 0.0)).gap.is_infinite());
+        assert_eq!(
+            in_target_state(Pointer::from(Vec2::new(200.0, 0.0))).gap,
+            0.0
+        );
+        assert!(
+            in_target_state(Pointer::from(Vec2::new(100.0, 0.0)))
+                .gap
+                .is_infinite()
+        );
     }
 
     #[test]
     fn wins_a_closest_when_the_pointer_is_over_it() {
         let spec = closest([drop_target("bin", Slot(2)), state(Slot(1))]);
         let mut behavior = spec.compile(&context());
-        assert_eq!(behavior(Vec2::new(100.0, 0.0)).drop_state, Slot(2));
-        assert_eq!(behavior(Vec2::new(12.0, 0.0)).drop_state, Slot(1));
+        assert_eq!(
+            behavior(Pointer::from(Vec2::new(100.0, 0.0))).drop_state,
+            Slot(2)
+        );
+        assert_eq!(
+            behavior(Pointer::from(Vec2::new(12.0, 0.0))).drop_state,
+            Slot(1)
+        );
     }
 }

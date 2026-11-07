@@ -83,15 +83,15 @@ mod tests {
     use crate::view::ViewNode;
 
     fn at(x: f32) -> View<()> {
-        View::new().with(ViewNode::circle("n", 1.0).at(Vec2::new(x, 0.0)))
+        View::new().with(ViewNode::circle("n", 1.0).at_xy(Vec2::new(x, 0.0)))
     }
 
     #[test]
     fn eases_from_start_to_target() {
         let mut transition = Transition::new(at(0.0), at(10.0), 1.0);
-        assert!(transition.current().position("n").unwrap().x.abs() < 1e-5);
+        assert!(transition.current().world_position("n").unwrap().x.abs() < 1e-5);
         transition.advance(0.5);
-        let halfway = transition.current().position("n").unwrap().x;
+        let halfway = transition.current().world_position("n").unwrap().x;
         assert!(
             halfway > 5.0 && halfway < 10.0,
             "ease-out is ahead: {halfway}"
@@ -99,6 +99,6 @@ mod tests {
         assert!(!transition.is_finished());
         transition.advance(0.5);
         assert!(transition.is_finished());
-        assert!((transition.current().position("n").unwrap().x - 10.0).abs() < 1e-5);
+        assert!((transition.current().world_position("n").unwrap().x - 10.0).abs() < 1e-5);
     }
 }

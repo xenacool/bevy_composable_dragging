@@ -1,9 +1,10 @@
 //! The `closest` operator.
 
-use bevy::math::Vec2;
+use bevy::math::Vec3;
 
 use crate::behavior::{DragBehavior, DragContext, Frame};
 use crate::ops::state;
+use crate::space::Pointer;
 use crate::spec::DragSpec;
 
 /// Options of [`closest_with_options`]. The defaults match [`closest`].
@@ -123,7 +124,7 @@ pub fn closest_with_options<S: Clone + Send + Sync + 'static>(
 /// Where the dragged node started, for [`ClosestOptions::lock_past`].
 struct Lock<S> {
     context: DragContext<S>,
-    home: Vec2,
+    home: Vec3,
     distance: f32,
 }
 
@@ -142,7 +143,7 @@ fn run<'a, S>(
     frames: &'a mut [Option<Frame<S>>],
     behaviors: &mut [DragBehavior<S>],
     index: usize,
-    pointer: Vec2,
+    pointer: Pointer,
 ) -> &'a Frame<S> {
     frames[index].get_or_insert_with(|| behaviors[index](pointer))
 }
@@ -173,6 +174,9 @@ pub(crate) fn select_branch(gaps: &[f32], current: Option<usize>, stickiness: f3
 
 #[cfg(test)]
 mod tests {
+    use crate::space::Pointer;
+    use bevy::math::Vec2;
+
     use super::*;
     use crate::ops::between;
     use crate::ops::testing::{Slot, context};
@@ -188,25 +192,40 @@ mod tests {
     #[test]
     fn lock_past_keeps_the_branch_that_carried_the_node_away() {
         let mut behavior = locking(5.0).compile(&context());
-        assert_eq!(behavior(Vec2::new(11.0, 0.0)).drop_state, Slot(1));
+        assert_eq!(
+            behavior(Pointer::from(Vec2::new(11.0, 0.0))).drop_state,
+            Slot(1)
+        );
         // Slot 2 is nearer now, but the first branch holds the node far from home.
-        assert_eq!(behavior(Vec2::new(19.0, 0.0)).drop_state, Slot(1));
+        assert_eq!(
+            behavior(Pointer::from(Vec2::new(19.0, 0.0))).drop_state,
+            Slot(1)
+        );
     }
 
     #[test]
     fn lock_past_releases_when_the_node_returns_home() {
         let mut behavior = locking(5.0).compile(&context());
-        behavior(Vec2::new(11.0, 0.0));
-        assert_eq!(behavior(Vec2::new(3.0, 0.0)).drop_state, Slot(0));
-        assert_eq!(behavior(Vec2::new(19.0, 0.0)).drop_state, Slot(2));
+        behavior(Pointer::from(Vec2::new(11.0, 0.0)));
+        assert_eq!(
+            behavior(Pointer::from(Vec2::new(3.0, 0.0))).drop_state,
+            Slot(0)
+        );
+        assert_eq!(
+            behavior(Pointer::from(Vec2::new(19.0, 0.0))).drop_state,
+            Slot(2)
+        );
     }
 
     #[test]
     fn without_lock_past_the_nearest_branch_always_wins() {
         let spec = closest([between([Slot(0), Slot(1)]), state(Slot(2))]);
         let mut behavior = spec.compile(&context());
-        behavior(Vec2::new(11.0, 0.0));
-        assert_eq!(behavior(Vec2::new(19.0, 0.0)).drop_state, Slot(2));
+        behavior(Pointer::from(Vec2::new(11.0, 0.0)));
+        assert_eq!(
+            behavior(Pointer::from(Vec2::new(19.0, 0.0))).drop_state,
+            Slot(2)
+        );
     }
 
     /// A dot at a point of the plane.
@@ -217,7 +236,7 @@ mod tests {
         use crate::view::{View, ViewNode};
         DragContext::new(
             std::sync::Arc::new(|dot: &Dot| {
-                View::new().with(ViewNode::circle("dot", 5.0).at(Vec2::new(dot.0, dot.1)))
+                View::new().with(ViewNode::circle("dot", 5.0).at_xy(Vec2::new(dot.0, dot.1)))
             }),
             "dot".into(),
             Dot(0.0, 0.0),
@@ -239,8 +258,8 @@ mod tests {
     #[test]
     fn without_lock_past_a_drag_jumps_between_spokes() {
         let mut behavior = spokes(ClosestOptions::new()).compile(&dot_context());
-        let right = behavior(Vec2::new(60.0, 5.0)).branch;
-        let down = behavior(Vec2::new(40.0, 60.0)).branch;
+        let right = behavior(Pointer::from(Vec2::new(60.0, 5.0))).branch;
+        let down = behavior(Pointer::from(Vec2::new(40.0, 60.0))).branch;
         assert_ne!(right, down);
     }
 
@@ -248,19 +267,22 @@ mod tests {
     fn with_lock_past_a_drag_stays_on_its_spoke_until_the_dot_returns_home() {
         let mut behavior =
             spokes(ClosestOptions::new().with_lock_past(10.0)).compile(&dot_context());
-        let right = behavior(Vec2::new(60.0, 5.0)).branch;
+        let right = behavior(Pointer::from(Vec2::new(60.0, 5.0))).branch;
         // Closer to the other spoke, but still out on this one.
-        assert_eq!(behavior(Vec2::new(40.0, 60.0)).branch, right);
+        assert_eq!(behavior(Pointer::from(Vec2::new(40.0, 60.0))).branch, right);
         // Projects back onto the start of this spoke, so it unlocks.
-        assert_ne!(behavior(Vec2::new(-10.0, 60.0)).branch, right);
+        assert_ne!(
+            behavior(Pointer::from(Vec2::new(-10.0, 60.0))).branch,
+            right
+        );
     }
 
     #[test]
     fn lock_past_is_free_to_switch_within_its_distance_of_home() {
         let mut behavior =
             spokes(ClosestOptions::new().with_lock_past(10.0)).compile(&dot_context());
-        let right = behavior(Vec2::new(6.0, 1.0)).branch;
-        let down = behavior(Vec2::new(1.0, 6.0)).branch;
+        let right = behavior(Pointer::from(Vec2::new(6.0, 1.0))).branch;
+        let down = behavior(Pointer::from(Vec2::new(1.0, 6.0))).branch;
         assert_ne!(right, down);
     }
 
@@ -274,10 +296,13 @@ mod tests {
     #[test]
     fn snaps_to_the_state_nearest_the_pointer() {
         let mut behavior = closest_states([Slot(0), Slot(1), Slot(2)]).compile(&context());
-        let frame = behavior(Vec2::new(13.0, 4.0));
+        let frame = behavior(Pointer::from(Vec2::new(13.0, 4.0)));
         assert_eq!(frame.drop_state.0, 1);
-        assert!((frame.view.position("item").unwrap().x - 10.0).abs() < 1e-4);
-        assert_eq!(behavior(Vec2::new(19.0, 0.0)).drop_state.0, 2);
+        assert!((frame.view.world_position("item").unwrap().x - 10.0).abs() < 1e-4);
+        assert_eq!(
+            behavior(Pointer::from(Vec2::new(19.0, 0.0))).drop_state.0,
+            2
+        );
     }
 
     #[test]
@@ -285,27 +310,27 @@ mod tests {
         let mut behavior = closest_states([Slot(0), Slot(1), Slot(2)])
             .with_floating()
             .compile(&context());
-        let frame = behavior(Vec2::new(13.0, 4.0));
+        let frame = behavior(Pointer::from(Vec2::new(13.0, 4.0)));
         assert_eq!(frame.drop_state.0, 1);
-        let item = frame.view.position("item").unwrap();
-        assert!(item.distance(Vec2::new(13.0, 4.0)) < 1e-4);
-        assert!((frame.view.position("other").unwrap().y - 51.0).abs() < 1e-4);
+        let item = frame.view.world_position("item").unwrap();
+        assert!(item.truncate().distance(Vec2::new(13.0, 4.0)) < 1e-4);
+        assert!((frame.view.world_position("other").unwrap().y - 51.0).abs() < 1e-4);
     }
 
     #[test]
     fn sticky_closest_resists_small_moves_past_the_boundary() {
         let mut behavior =
             closest_with_stickiness([state(Slot(0)), state(Slot(1))], 4.0).compile(&context());
-        assert_eq!(behavior(Vec2::new(2.0, 0.0)).drop_state.0, 0);
+        assert_eq!(behavior(Pointer::from(Vec2::new(2.0, 0.0))).drop_state.0, 0);
         // Slightly nearer to slot 1, but not by more than the stickiness.
-        assert_eq!(behavior(Vec2::new(6.0, 0.0)).drop_state.0, 0);
-        assert_eq!(behavior(Vec2::new(9.0, 0.0)).drop_state.0, 1);
+        assert_eq!(behavior(Pointer::from(Vec2::new(6.0, 0.0))).drop_state.0, 0);
+        assert_eq!(behavior(Pointer::from(Vec2::new(9.0, 0.0))).drop_state.0, 1);
     }
 
     #[test]
     fn no_branches_shows_the_start_state() {
         let mut behavior = closest::<Slot>([]).compile(&context());
-        let frame = behavior(Vec2::ZERO);
+        let frame = behavior(Pointer::from(Vec2::ZERO));
         assert_eq!(frame.drop_state.0, 0);
         assert!(frame.gap.is_infinite());
     }

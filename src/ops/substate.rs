@@ -126,6 +126,7 @@ where
 
 #[cfg(test)]
 mod tests {
+    use crate::space::Pointer;
     use std::sync::Arc;
 
     use bevy::math::Vec2;
@@ -143,8 +144,8 @@ mod tests {
 
     fn two_view(two: &Two) -> View<Two> {
         View::new()
-            .with(ViewNode::circle("item", 1.0).at(Vec2::new(two.left as f32 * 10.0, 0.0)))
-            .with(ViewNode::circle("twin", 1.0).at(Vec2::new(two.right as f32 * 10.0, 50.0)))
+            .with(ViewNode::circle("item", 1.0).at_xy(Vec2::new(two.left as f32 * 10.0, 0.0)))
+            .with(ViewNode::circle("twin", 1.0).at_xy(Vec2::new(two.right as f32 * 10.0, 50.0)))
     }
 
     fn two_context() -> DragContext<Two> {
@@ -165,17 +166,17 @@ mod tests {
     fn the_part_changes_and_the_rest_stays() {
         let spec = substate(left(), closest_states([0, 1, 2]));
         let mut behavior = spec.compile(&two_context());
-        let frame = behavior(Vec2::new(12.0, 0.0));
+        let frame = behavior(Pointer::from(Vec2::new(12.0, 0.0)));
         assert_eq!(frame.drop_state, Two { left: 1, right: 2 });
-        assert!((frame.view.position("item").unwrap().x - 10.0).abs() < 1e-4);
-        assert!((frame.view.position("twin").unwrap().x - 20.0).abs() < 1e-4);
+        assert!((frame.view.world_position("item").unwrap().x - 10.0).abs() < 1e-4);
+        assert!((frame.view.world_position("twin").unwrap().x - 20.0).abs() < 1e-4);
         assert!(frame.gap < 3.0);
     }
 
     #[test]
     fn the_preview_nodes_are_not_draggable() {
         let spec = substate(left(), closest_states([0, 1]));
-        let frame = spec.compile(&two_context())(Vec2::ZERO);
+        let frame = spec.compile(&two_context())(Pointer::from(Vec2::ZERO));
         assert!(frame.view.nodes().iter().all(|node| node.drag.is_none()));
     }
 
@@ -187,14 +188,17 @@ mod tests {
             closest_states([0usize, 1])
                 .with_chaining_options(Chaining::new().dragging("twin").following(follow)),
         );
-        let frame = spec.compile(&two_context())(Vec2::new(10.0, 0.0));
+        let frame = spec.compile(&two_context())(Pointer::from(Vec2::new(10.0, 0.0)));
         let chain = frame.chain.expect("the drop state left the start state");
         assert_eq!(chain.dragged.as_deref(), Some("twin"));
         let mut follow = chain
             .follow
             .expect("the follow spec is kept")
             .compile(&two_context());
-        assert_eq!(follow(Vec2::ZERO).drop_state, Two { left: 1, right: 2 });
+        assert_eq!(
+            follow(Pointer::from(Vec2::ZERO)).drop_state,
+            Two { left: 1, right: 2 }
+        );
     }
 
     #[test]
@@ -205,7 +209,7 @@ mod tests {
                 .with_branch_transition(0.5)
                 .with_drop_transition(0.25),
         );
-        let frame = spec.compile(&two_context())(Vec2::ZERO);
+        let frame = spec.compile(&two_context())(Pointer::from(Vec2::ZERO));
         assert_eq!(frame.branch_transition, Some(0.5));
         assert_eq!(frame.drop_transition, Some(0.25));
     }

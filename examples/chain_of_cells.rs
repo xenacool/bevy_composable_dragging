@@ -30,7 +30,7 @@ fn cell_position(cell: usize) -> Vec2 {
 /// The underline drawn below the cell that the token would land in.
 fn target_marker(cell: usize) -> ViewNode<Token> {
     ViewNode::rectangle("target", Vec2::new(1.1, 0.12))
-        .at(cell_position(cell) - Vec2::new(0.0, 0.95))
+        .at_xy(cell_position(cell) - Vec2::new(0.0, 0.95))
         .with_color(Color::srgb(1.0, 0.85, 0.3))
 }
 
@@ -54,14 +54,14 @@ fn view(token: &Token) -> View<Token> {
     for cell in 0..CELLS {
         view.push(
             ViewNode::rectangle(format!("cell-{cell}"), Vec2::splat(1.2))
-                .at(cell_position(cell))
+                .at_xy(cell_position(cell))
                 .with_color(Color::srgb(0.22, 0.24, 0.3)),
         );
     }
     let current = token.clone();
     view.with(
         ViewNode::circle("token", 0.9)
-            .at(cell_position(token.0))
+            .at_xy(cell_position(token.0))
             .with_z(0.1)
             .with_color(Color::srgb(0.95, 0.5, 0.35))
             .draggable(move || walk(&current)),

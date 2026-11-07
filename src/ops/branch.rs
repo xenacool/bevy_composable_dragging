@@ -22,6 +22,7 @@ impl<S: Clone + Send + Sync + 'static> DragSpec<S> {
 
 #[cfg(test)]
 mod tests {
+    use crate::space::Pointer;
     use bevy::math::Vec2;
 
     use crate::ops::closest_states;
@@ -30,10 +31,13 @@ mod tests {
     fn frames_carry_the_requested_duration_and_a_branch_per_alternative() {
         let spec = closest_states([Slot(0), Slot(1)]).with_branch_transition(0.5);
         let mut behavior = spec.compile(&context());
-        let left = behavior(Vec2::new(0.0, 0.0));
-        let right = behavior(Vec2::new(10.0, 0.0));
+        let left = behavior(Pointer::from(Vec2::new(0.0, 0.0)));
+        let right = behavior(Pointer::from(Vec2::new(10.0, 0.0)));
         assert_eq!(left.branch_transition, Some(0.5));
         assert_ne!(left.branch, right.branch);
-        assert_eq!(behavior(Vec2::new(1.0, 0.0)).branch, left.branch);
+        assert_eq!(
+            behavior(Pointer::from(Vec2::new(1.0, 0.0))).branch,
+            left.branch
+        );
     }
 }

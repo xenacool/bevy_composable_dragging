@@ -32,7 +32,7 @@ fn view(order: &Order) -> View<Order> {
         let hue = item as f32 * 360.0 / ITEMS as f32;
         view.push(
             ViewNode::rectangle(format!("item-{item}"), Vec2::new(3.0, 0.8))
-                .at(slot_position(slot))
+                .at_xy(slot_position(slot))
                 .with_color(Color::hsl(hue, 0.65, 0.55))
                 .draggable(move || {
                     closest_states((0..ITEMS).map(|to| Order(move_item(&order, slot, to))))

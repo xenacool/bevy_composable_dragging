@@ -103,13 +103,13 @@ fn view(board: &Board) -> View<Board> {
     for cell in 0..COLUMNS * ROWS {
         view.push(
             ViewNode::rectangle(format!("cell-{cell}"), Vec2::splat(CELL - 0.1))
-                .at(cell_position(cell))
+                .at_xy(cell_position(cell))
                 .with_color(Color::srgb(0.2, 0.22, 0.27)),
         );
     }
     view.push(
         ViewNode::rectangle("bin", Vec2::new(1.8, 1.0))
-            .at(Vec2::new(3.6, -2.4))
+            .at_xy(Vec2::new(3.6, -2.4))
             .with_color(Color::srgb(0.55, 0.22, 0.25)),
     );
     for kind in 0..KINDS {
@@ -130,7 +130,7 @@ fn view(board: &Board) -> View<Board> {
         let new_id = board.next_id;
         view.push(
             kind_node(format!("tool-{kind}"), kind)
-                .at(tool_position(kind))
+                .at_xy(tool_position(kind))
                 .with_z(0.05)
                 .draggable(move || {
                     switch_to_state_and_follow(created.clone(), format!("tile-{new_id}"))
@@ -142,7 +142,7 @@ fn view(board: &Board) -> View<Board> {
         let snapshot = board.clone();
         view.push(
             kind_node(format!("tile-{id}"), tile.kind)
-                .at(tile_position(tile))
+                .at_xy(tile_position(tile))
                 .with_z(0.1)
                 .draggable(move || tile_spec(&snapshot, id)),
         );

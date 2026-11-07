@@ -2,8 +2,9 @@
 
 use std::sync::Arc;
 
-use bevy::math::Vec2;
+use bevy::math::Vec3;
 
+use crate::space::{DragSpace, Pointer};
 use crate::spec::DragSpec;
 use crate::view::{NodeId, View};
 
@@ -126,18 +127,20 @@ impl<S> Frame<S> {
     }
 }
 
-/// A running drag: maps the pointer position to the [`Frame`] to show.
+/// A running drag: maps the [`Pointer`] to the [`Frame`] to show.
 ///
-/// The position is where the dragged node's origin should be, so the grab offset is already
-/// removed. Behaviors may keep state between calls (for example to make `closest` sticky).
-pub type DragBehavior<S> = Box<dyn FnMut(Vec2) -> Frame<S> + Send + Sync>;
+/// The point of the pointer is where the dragged node's origin should be, so the grab offset is
+/// already removed. Behaviors may keep state between calls (for example to make `closest`
+/// sticky).
+pub type DragBehavior<S> = Box<dyn FnMut(Pointer) -> Frame<S> + Send + Sync>;
 
 /// What a [`DragSpec`](crate::DragSpec) can see when it is compiled into a [`DragBehavior`].
 pub struct DragContext<S> {
     view_fn: ViewFn<S>,
     dragged: NodeId,
     start_state: S,
-    grab_offset: Vec2,
+    grab_offset: Vec3,
+    space: DragSpace,
 }
 
 impl<S: Clone> Clone for DragContext<S> {
@@ -147,6 +150,7 @@ impl<S: Clone> Clone for DragContext<S> {
             dragged: self.dragged.clone(),
             start_state: self.start_state.clone(),
             grab_offset: self.grab_offset,
+            space: self.space,
         }
     }
 }
@@ -158,14 +162,22 @@ impl<S> DragContext<S> {
             view_fn,
             dragged,
             start_state,
-            grab_offset: Vec2::ZERO,
+            grab_offset: Vec3::ZERO,
+            space: DragSpace::default(),
         }
     }
 
     /// Sets the offset from the pointer to the dragged node's origin at the start of the drag.
     #[must_use]
-    pub fn with_grab_offset(mut self, grab_offset: Vec2) -> Self {
+    pub fn with_grab_offset(mut self, grab_offset: Vec3) -> Self {
         self.grab_offset = grab_offset;
+        self
+    }
+
+    /// Sets the space the drag happens in.
+    #[must_use]
+    pub fn with_space(mut self, space: DragSpace) -> Self {
+        self.space = space;
         self
     }
 
@@ -186,8 +198,14 @@ impl<S> DragContext<S> {
     /// The offset, at the start of the drag, from the dragged node's origin to the pointer.
     /// Behaviors receive the position the node's origin should have; adding this offset gives
     /// the pointer itself.
-    pub fn grab_offset(&self) -> Vec2 {
+    pub fn grab_offset(&self) -> Vec3 {
         self.grab_offset
+    }
+
+    /// The space the drag happens in. Pointers are world points in it, and gaps are measured
+    /// after projecting positions onto it.
+    pub fn space(&self) -> &DragSpace {
+        &self.space
     }
 
     /// Speculatively renders `state`. This only builds plain data.
@@ -211,7 +229,19 @@ impl<S> DragContext<S> {
     }
 
     /// The world position of the dragged node in `view`, if the view contains it.
-    pub fn anchor_in(&self, view: &View<S>) -> Option<Vec2> {
-        view.position(&self.dragged)
+    pub fn anchor_in(&self, view: &View<S>) -> Option<Vec3> {
+        view.world_position(&self.dragged)
+    }
+
+    /// The distance between the pointer and `anchor` projected onto the space of the drag.
+    pub fn gap_to(&self, anchor: Vec3, pointer: &Pointer) -> f32 {
+        self.space.project_point(anchor).distance(pointer.point)
+    }
+
+    /// How far the dragged node is from the pointer in `view`: [`gap_to`](Self::gap_to) its
+    /// position, and infinite when the view does not contain the node.
+    pub fn gap_in(&self, view: &View<S>, pointer: &Pointer) -> f32 {
+        self.anchor_in(view)
+            .map_or(f32::INFINITY, |anchor| self.gap_to(anchor, pointer))
     }
 }

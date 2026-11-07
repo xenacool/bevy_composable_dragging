@@ -52,14 +52,14 @@ fn view(state: &Choice) -> View<Choice> {
     for choice in CHOICES {
         view.push(
             ViewNode::circle(format!("dot-{}", choice.id()), 0.5)
-                .at(Vec2::new(choice.x(), 0.0))
+                .at_xy(Vec2::new(choice.x(), 0.0))
                 .with_z(0.05)
                 .with_color(Color::srgb(0.55, 0.57, 0.62)),
         );
     }
     view.with(
         ViewNode::circle("knob", 1.1)
-            .at(Vec2::new(state.x(), 0.0))
+            .at_xy(Vec2::new(state.x(), 0.0))
             .with_z(0.1)
             .with_color(state.color())
             .draggable(|| between(CHOICES)),

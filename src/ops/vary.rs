@@ -165,6 +165,7 @@ fn solve<S: Clone + Send + Sync + 'static>(
         let build = Arc::clone(&build);
         let view_fn = context.view_fn();
         let dragged = context.dragged().to_owned();
+        let space = *context.space();
         let steps = steps.clone();
         let constraint = options.constraint.clone();
         let pins = options.pins.clone();
@@ -176,8 +177,10 @@ fn solve<S: Clone + Send + Sync + 'static>(
             let (solution, evaluation) = minimize(&values, &steps, |candidate| {
                 let state = build(candidate);
                 let cost = view_fn(&state)
-                    .position(&dragged)
-                    .map_or(f32::INFINITY, |anchor| anchor.distance_squared(pointer));
+                    .world_position(&dragged)
+                    .map_or(f32::INFINITY, |anchor| {
+                        space.project_point(anchor).distance_squared(pointer.point)
+                    });
                 let pinned: f32 = pins
                     .iter()
                     .zip(&targets)
@@ -197,6 +200,7 @@ fn solve<S: Clone + Send + Sync + 'static>(
 
 #[cfg(test)]
 mod tests {
+    use crate::space::Pointer;
     use std::sync::Arc;
 
     use bevy::math::Vec2;
@@ -214,7 +218,7 @@ mod tests {
 
     /// The knob sits at x = 100 * value.
     fn slider_view(state: &Slider) -> View<Slider> {
-        View::new().with(ViewNode::circle("knob", 10.0).at(Vec2::new(state.value * 100.0, 0.0)))
+        View::new().with(ViewNode::circle("knob", 10.0).at_xy(Vec2::new(state.value * 100.0, 0.0)))
     }
 
     fn slider_context(value: f32) -> DragContext<Slider> {
@@ -226,7 +230,7 @@ mod tests {
         let mut behavior =
             vary(Slider { value: 0.2 }, [param!(Slider, value)]).compile(&slider_context(0.2));
         for x in [30.0, 45.0, 62.0, 80.0] {
-            let frame = behavior(Vec2::new(x, 7.0));
+            let frame = behavior(Pointer::from(Vec2::new(x, 7.0)));
             assert!((frame.drop_state.value * 100.0 - x).abs() < 0.1, "x = {x}");
             // The pointer is off the slider's line by 7, which no parameter can fix.
             assert!((frame.gap - 7.0).abs() < 0.1);
@@ -242,11 +246,11 @@ mod tests {
             in_range(value, 0.0, 1.0),
         )
         .compile(&slider_context(0.5));
-        let beyond = behavior(Vec2::new(250.0, 0.0));
+        let beyond = behavior(Pointer::from(Vec2::new(250.0, 0.0)));
         assert!((beyond.drop_state.value - 1.0).abs() < 1e-3);
-        let before = behavior(Vec2::new(-80.0, 0.0));
+        let before = behavior(Pointer::from(Vec2::new(-80.0, 0.0)));
         assert!(before.drop_state.value.abs() < 1e-3);
-        let inside = behavior(Vec2::new(40.0, 0.0));
+        let inside = behavior(Pointer::from(Vec2::new(40.0, 0.0)));
         assert!((inside.drop_state.value - 0.4).abs() < 1e-3);
     }
 
@@ -258,7 +262,7 @@ mod tests {
 
     /// The handle sits on the range's end, at x = 100 * end.
     fn range_view(state: &Range) -> View<Range> {
-        View::new().with(ViewNode::circle("end", 10.0).at(Vec2::new(state.end * 100.0, 0.0)))
+        View::new().with(ViewNode::circle("end", 10.0).at_xy(Vec2::new(state.end * 100.0, 0.0)))
     }
 
     #[test]
@@ -271,7 +275,7 @@ mod tests {
         let constraint = in_order([param!(Range, start), param!(Range, end)]);
         let mut behavior =
             vary_constrained(initial, [param!(Range, end)], constraint).compile(&context);
-        let frame = behavior(Vec2::new(10.0, 0.0));
+        let frame = behavior(Pointer::from(Vec2::new(10.0, 0.0)));
         assert!((frame.drop_state.end - 0.4).abs() < 1e-3);
         assert!((frame.drop_state.start - 0.4).abs() < 1e-6);
     }
@@ -283,7 +287,7 @@ mod tests {
     }
 
     fn point_view(state: &Point) -> View<Point> {
-        View::new().with(ViewNode::circle("dot", 10.0).at(Vec2::new(state.x, state.y)))
+        View::new().with(ViewNode::circle("dot", 10.0).at_xy(Vec2::new(state.x, state.y)))
     }
 
     fn point_context() -> DragContext<Point> {
@@ -297,7 +301,7 @@ mod tests {
             [param!(Point, x), param!(Point, y)],
             VaryOptions::new().with_pinned_param(param!(Point, y)),
         );
-        let frame = spec.compile(&point_context())(Vec2::new(30.0, 40.0));
+        let frame = spec.compile(&point_context())(Pointer::from(Vec2::new(30.0, 40.0)));
         assert!((frame.drop_state.x - 30.0).abs() < 0.1);
         assert!((frame.drop_state.y - 5.0).abs() < 0.1);
     }
@@ -309,7 +313,7 @@ mod tests {
             [param!(Point, x), param!(Point, y)],
             VaryOptions::new().with_pin(|point: &Point| point.y * 2.0),
         );
-        let frame = spec.compile(&point_context())(Vec2::new(-12.0, 40.0));
+        let frame = spec.compile(&point_context())(Pointer::from(Vec2::new(-12.0, 40.0)));
         assert!((frame.drop_state.x + 12.0).abs() < 0.1);
         assert!((frame.drop_state.y - 5.0).abs() < 0.1);
     }
@@ -329,7 +333,7 @@ mod tests {
         let mut last = None;
         for step in 0..=20 {
             let angle = std::f32::consts::FRAC_PI_2 * step as f32 / 20.0;
-            let frame = behavior(Vec2::from_angle(angle) * 140.0);
+            let frame = behavior(Pointer::from(Vec2::from_angle(angle) * 140.0));
             let point = frame.drop_state;
             assert!((point.x.hypot(point.y) - 100.0).abs() < 0.5, "step {step}");
             last = Some(point);
@@ -354,7 +358,7 @@ mod tests {
             },
             VaryOptions::new().with_scale(10.0),
         );
-        let frame = spec.compile(&point_context())(Vec2::new(10.0, 20.0));
+        let frame = spec.compile(&point_context())(Pointer::from(Vec2::new(10.0, 20.0)));
         assert!((frame.drop_state.x - 10.0).abs() < 0.1);
         assert!((frame.drop_state.y - 20.0).abs() < 0.2);
         assert!(frame.gap < 0.2);
@@ -369,7 +373,7 @@ mod tests {
                 (slider.value - 1.0).max(0.0)
             })),
         );
-        let frame = spec.compile(&slider_context(0.0))(Vec2::new(500.0, 0.0));
+        let frame = spec.compile(&slider_context(0.0))(Pointer::from(Vec2::new(500.0, 0.0)));
         assert!((frame.drop_state.value - 1.0).abs() < 1e-3);
     }
 
@@ -381,6 +385,6 @@ mod tests {
             Slider { value: 0.5 },
         );
         let mut behavior = vary(Slider { value: 0.5 }, [param!(Slider, value)]).compile(&context);
-        assert!(behavior(Vec2::ZERO).gap.is_infinite());
+        assert!(behavior(Pointer::from(Vec2::ZERO)).gap.is_infinite());
     }
 }

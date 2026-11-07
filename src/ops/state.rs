@@ -9,13 +9,15 @@ use crate::spec::DragSpec;
 pub fn state<S: Clone + Send + Sync + 'static>(target: S) -> DragSpec<S> {
     DragSpec::new(move |context| {
         let view = context.render(&target);
-        let anchor = context.anchor_in(&view);
+        let anchor = context
+            .anchor_in(&view)
+            .map(|anchor| context.space().project_point(anchor));
         let target = target.clone();
         Box::new(move |pointer| {
             Frame::new(
                 view.clone(),
                 target.clone(),
-                anchor.map_or(f32::INFINITY, |anchor| anchor.distance(pointer)),
+                anchor.map_or(f32::INFINITY, |anchor| anchor.distance(pointer.point)),
             )
         })
     })
