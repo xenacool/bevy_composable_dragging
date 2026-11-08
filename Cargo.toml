@@ -1,6 +1,6 @@
 [package]
 name = "bevy_composable_dragging"
-version = "0.1.1"
+version = "0.1.2"
 authors = ["Jessica Collins (https://github.com/xenacool)"]
 edition = "2024"
 rust-version = "1.87"
@@ -44,7 +44,7 @@ shapes-3d = ["gradmesh"]
 
 [dependencies]
 bevy = { version = "0.20", default-features = false, features = ["bevy_color"] }
-bevy_gradmesh = { version = "0.2.4", optional = true }
+bevy_gradmesh = { version = "0.2.7", optional = true }
 
 # Examples need windowing, tonemapping LUT textures and PNG support which the library does not require.
 [dev-dependencies]
@@ -132,3 +132,13 @@ test = true
 name = "gradient_kanban_2d"
 path = "examples/gradient_kanban_2d.rs"
 required-features = ["shapes-2d"]
+
+[[example]]
+name = "cozy_castle_3d"
+path = "examples/cozy_castle/main.rs"
+required-features = ["shapes-3d"]
+
+[[example]]
+name = "kart_racer_editor"
+path = "examples/kart_racer_editor/main.rs"
+required-features = ["shapes-3d"]

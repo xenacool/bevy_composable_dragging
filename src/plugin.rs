@@ -8,11 +8,13 @@ use bevy::picking::mesh_picking::MeshPickingPlugin;
 use bevy::prelude::*;
 
 use crate::behavior::ViewFn;
-use crate::input::{DragPlane, on_drag, on_drag_end, on_drag_start, on_press};
+use crate::input::{DragPlane, on_click, on_drag, on_drag_end, on_drag_start, on_press};
 use crate::model::DragModel;
 use crate::render::{NodeEntities, sync_nodes};
 use crate::rendering::Rendering;
 use crate::shapes::ShapeMeshes;
+#[cfg(feature = "gradmesh")]
+use crate::shapes::release_unused_materials;
 use crate::transition::advance_transitions;
 use crate::view::View;
 
@@ -58,6 +60,24 @@ impl<S> DraggablePlugin<S> {
     }
 }
 
+/// Registers what the nodes need from `bevy_gradmesh` in an app without a renderer, such as a
+/// test app without a GPU: the material assets and their pool, but none of the GPU pipelines.
+#[cfg(feature = "gradmesh")]
+fn add_headless_assets(app: &mut App) {
+    use bevy::sprite_render::ColorMaterial;
+    use bevy_gradmesh::{
+        GradMeshMaterial, GradMeshMaterial2d, GradMeshMaterialPool, SdfMaterial2d,
+    };
+
+    app.init_asset::<Mesh>()
+        .init_asset::<StandardMaterial>()
+        .init_asset::<ColorMaterial>()
+        .init_asset::<GradMeshMaterial>()
+        .init_asset::<GradMeshMaterial2d>()
+        .init_asset::<SdfMaterial2d>()
+        .init_resource::<GradMeshMaterialPool>();
+}
+
 impl<S: Clone + Send + Sync + 'static> Plugin for DraggablePlugin<S> {
     fn build(&self, app: &mut App) {
         // `DefaultPlugins` already contains the pointer input and picking plugins, but not the
@@ -73,7 +93,11 @@ impl<S: Clone + Send + Sync + 'static> Plugin for DraggablePlugin<S> {
         }
         #[cfg(feature = "gradmesh")]
         if !app.is_plugin_added::<bevy_gradmesh::GradMeshPlugin>() {
-            app.add_plugins(bevy_gradmesh::GradMeshPlugin);
+            if app.get_sub_app(bevy::render::RenderApp).is_some() {
+                app.add_plugins(bevy_gradmesh::GradMeshPlugin);
+            } else {
+                add_headless_assets(app);
+            }
         }
         let mut model = DragModel::from_view_fn(self.initial.clone(), Arc::clone(&self.view_fn));
         if let Some(seconds) = self.transition_duration {
@@ -85,9 +109,12 @@ impl<S: Clone + Send + Sync + 'static> Plugin for DraggablePlugin<S> {
             .init_resource::<ShapeMeshes>()
             .init_resource::<NodeEntities<S>>()
             .add_observer(on_press::<S>)
+            .add_observer(on_click::<S>)
             .add_observer(on_drag_start::<S>)
             .add_observer(on_drag::<S>)
             .add_observer(on_drag_end::<S>)
             .add_systems(Update, (advance_transitions::<S>, sync_nodes::<S>).chain());
+        #[cfg(feature = "gradmesh")]
+        app.add_systems(Update, release_unused_materials.after(sync_nodes::<S>));
     }
 }

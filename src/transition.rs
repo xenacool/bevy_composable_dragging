@@ -2,7 +2,7 @@
 
 use bevy::prelude::{Res, ResMut, Time};
 
-use crate::lerp::lerp_views;
+use crate::lerp::animate_views;
 use crate::model::DragModel;
 use crate::view::View;
 
@@ -53,15 +53,8 @@ impl<S: Clone> Transition<S> {
 
     /// The view to show right now.
     pub(crate) fn current(&self) -> View<S> {
-        lerp_views(&self.from, &self.to, ease_out(self.elapsed / self.duration))
+        animate_views(&self.from, &self.to, self.elapsed / self.duration)
     }
-}
-
-/// Decelerating curve: fast at the start, settling gently at the end.
-#[cfg_attr(not(feature = "pbr"), allow(dead_code))]
-fn ease_out(t: f32) -> f32 {
-    let t = t.clamp(0.0, 1.0);
-    1.0 - (1.0 - t).powi(3)
 }
 
 /// Advances the running transition of the model, if any.

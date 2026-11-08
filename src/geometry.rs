@@ -13,6 +13,9 @@ use bevy::prelude::Mesh;
 #[cfg(feature = "gradmesh")]
 use bevy_gradmesh::Shape;
 
+#[cfg(feature = "gradmesh")]
+use crate::sdf::SdfShape;
+
 /// The thinnest half extent of [`Geometry::bounds`], so flat shapes can still be hit by a ray.
 const MIN_HALF_THICKNESS: f32 = 0.02;
 
@@ -145,6 +148,11 @@ pub enum Geometry {
     /// Any `bevy_gradmesh` shape, 2D or 3D, drawn with its gradient material.
     #[cfg(feature = "gradmesh")]
     Grad(Shape),
+    /// A flat rectangle or ellipse with rounded corners and a border, drawn per pixel from a
+    /// signed distance field. It is drawn at its own dimensions in world units, and two of the
+    /// same kind blend by their numbers.
+    #[cfg(feature = "gradmesh")]
+    Sdf(SdfShape),
     /// A mesh of your own, drawn at its own dimensions. With the `gradmesh` feature it is drawn
     /// with the gradient material, so its style applies; it never morphs, and a blend between
     /// two meshes takes the nearer one. It needs the `pbr` feature.
@@ -156,6 +164,13 @@ pub enum Geometry {
 impl From<Shape> for Geometry {
     fn from(shape: Shape) -> Self {
         Self::Grad(shape)
+    }
+}
+
+#[cfg(feature = "gradmesh")]
+impl From<SdfShape> for Geometry {
+    fn from(shape: SdfShape) -> Self {
+        Self::Sdf(shape)
     }
 }
 
@@ -180,6 +195,11 @@ impl Geometry {
                 let steps = (t.clamp(0.0, 1.0) * MORPH_STEPS).round() / MORPH_STEPS;
                 Self::Grad(a.lerp(b, steps))
             }
+            #[cfg(feature = "gradmesh")]
+            (Self::Sdf(a), Self::Sdf(b)) if a.is_ellipse() == b.is_ellipse() => {
+                let steps = (t.clamp(0.0, 1.0) * MORPH_STEPS).round() / MORPH_STEPS;
+                Self::Sdf(a.lerp(b, steps))
+            }
             _ if t < 0.5 => self.clone(),
             _ => other.clone(),
         }
@@ -196,6 +216,12 @@ impl Geometry {
             Self::Circle => Bounds::new(Vec3::ZERO, Vec3::new(0.5, 0.5, 0.0), true),
             #[cfg(feature = "gradmesh")]
             Self::Grad(shape) => grad_bounds(shape),
+            #[cfg(feature = "gradmesh")]
+            Self::Sdf(shape) => Bounds::new(
+                Vec3::ZERO,
+                (shape.size() / 2.0).extend(0.0),
+                shape.is_ellipse(),
+            ),
             #[cfg(feature = "pbr")]
             Self::Mesh(mesh) => Bounds::new(mesh.center, mesh.half_extents, false),
         }

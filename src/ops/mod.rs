@@ -5,6 +5,7 @@
 
 mod between;
 mod branch;
+mod button;
 mod chaining;
 mod change;
 mod closest;
@@ -27,6 +28,7 @@ mod weights;
 mod when_far;
 
 pub use between::{BetweenOptions, DropRule, Interpolation, between, between_with};
+pub use button::button;
 pub use closest::{
     ClosestOptions, closest, closest_states, closest_with_options, closest_with_stickiness,
 };

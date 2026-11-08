@@ -4,5 +4,5 @@ Cargo.lock
 .DS_Store
 .idea/
 .vscode/
-# Screenshots are published as WebP only; PNG frames are intermediate captures.
-*.png
+# Animation frames are intermediate PNG captures, encoded to WebP by the Makefile.
+frames/

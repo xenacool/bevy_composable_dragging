@@ -19,8 +19,19 @@ use crate::blend::Presence;
 use crate::geometry::MeshGeometry;
 use crate::geometry::{Bounds, Geometry};
 use crate::rendering::Rendering;
+#[cfg(feature = "gradmesh")]
+use crate::sdf::SdfShape;
 use crate::space::DragSpace;
 use crate::spec::DragSpec;
+
+/// The render layer for gizmo handles. They sit on this layer so they are always picked first,
+/// even when scene geometry covers them. A camera that shows the scene should also show this
+/// layer, which [`DraggablePlugin`](crate::DraggablePlugin) does by default.
+pub const GIZMO_LAYER: usize = 31;
+
+/// The radius of the sphere that stands in for a group, which is never seen.
+#[cfg(feature = "gradmesh")]
+const GROUP_RADIUS: f32 = 1e-3;
 
 /// The stable, globally unique identifier that matches a node across different views.
 pub type NodeId = Cow<'static, str>;
@@ -55,8 +66,15 @@ pub struct ViewNode<S> {
     pub opacity: f32,
     /// What happens to the node when it exists in only one of two blended views.
     pub presence: Presence,
+    /// How far past its target the position, rotation and scale of the node run when an
+    /// animation brings it there, as a fraction of the distance travelled, before they settle
+    /// back onto it. `0.0` is the plain ease-out of the other nodes.
+    pub overshoot: f32,
     /// Whether the node casts shadows.
     pub casts_shadow: bool,
+    /// Whether the pointer can hit the node. A node that it cannot hit never takes a press and
+    /// never covers the nodes behind it, so decorations such as labels let presses through.
+    pub pickable: bool,
     /// How the node is drawn, or `None` for the default of the plugin (see [`Rendering`]).
     pub rendering: Option<Rendering>,
     /// The render layer of the node. A camera only draws, and a press from it only picks, the
@@ -82,7 +100,9 @@ impl<S> ViewNode<S> {
             geometry: geometry.into(),
             opacity: 1.0,
             presence: Presence::default(),
+            overshoot: 0.0,
             casts_shadow: true,
+            pickable: true,
             rendering: None,
             layer: 0,
             drag: None,
@@ -114,6 +134,24 @@ impl<S> ViewNode<S> {
     #[cfg(feature = "gradmesh")]
     pub fn grad(id: impl Into<NodeId>, shape: Shape) -> Self {
         Self::new(id, Geometry::Grad(shape))
+    }
+
+    /// Creates a flat node drawn from a signed distance field, at the dimensions of the shape.
+    /// It is meant for a `Camera2d`, so it is flat by default.
+    #[cfg(feature = "gradmesh")]
+    pub fn sdf(id: impl Into<NodeId>, shape: SdfShape) -> Self {
+        Self::new(id, Geometry::Sdf(shape)).flat()
+    }
+
+    /// Creates a node that draws nothing and takes no presses, to hang other nodes from and
+    /// move them together. Unlike a node with zero [`opacity`](Self::opacity), which hides its
+    /// children as well, a group leaves them as they are.
+    #[cfg(feature = "gradmesh")]
+    pub fn group(id: impl Into<NodeId>) -> Self {
+        Self::sphere(id, GROUP_RADIUS)
+            .with_style(Style::transparent(Color::NONE))
+            .casts_shadow(false)
+            .pickable(false)
     }
 
     /// Creates a gradient sphere of the given radius.
@@ -238,6 +276,13 @@ impl<S> ViewNode<S> {
         self
     }
 
+    /// Sets whether the pointer can hit the node. Nodes can be hit by default.
+    #[must_use]
+    pub fn pickable(mut self, pickable: bool) -> Self {
+        self.pickable = pickable;
+        self
+    }
+
     /// Draws the node as a flat `Mesh2d` for a `Camera2d`, whatever the default of the plugin is.
     ///
     /// Together with [`on_layer`](Self::on_layer) this builds a HUD over a 3D scene.
@@ -292,6 +337,15 @@ impl<S> ViewNode<S> {
         self
     }
 
+    /// Makes the transform of the node run past its target by `overshoot` of the distance
+    /// travelled, a tenth being `0.1`, and settle back onto it when an animation ends. Negative
+    /// values count as none.
+    #[must_use]
+    pub fn with_overshoot(mut self, overshoot: f32) -> Self {
+        self.overshoot = overshoot.max(0.0);
+        self
+    }
+
     /// Makes the node grow from (and shrink into) the node `from` when it enters or leaves.
     #[must_use]
     pub fn emerge_from(self, from: impl Into<NodeId>) -> Self {
@@ -342,7 +396,9 @@ impl<S> ViewNode<S> {
             geometry: self.geometry.clone(),
             opacity: self.opacity,
             presence: self.presence.clone(),
+            overshoot: self.overshoot,
             casts_shadow: self.casts_shadow,
+            pickable: self.pickable,
             rendering: self.rendering,
             layer: self.layer,
             drag: None,
@@ -482,18 +538,34 @@ impl<S> View<S> {
     /// Like [`hit_test`](Self::hit_test), but only for the nodes whose render layer `visible`
     /// accepts. A camera passes the layers it shows, so a ray from a HUD camera never hits a
     /// node of the 3D scene, and the other way round.
+    ///
+    /// Gizmo handles (on [`GIZMO_LAYER`]) are always included, even when the camera
+    /// does not show that layer, so they remain clickable when scene geometry covers them.
     #[must_use]
     pub fn hit_test_in(&self, ray: Ray3d, visible: impl Fn(usize) -> bool) -> Option<Hit> {
         let worlds = self.world_transforms();
         let mut best: Option<Hit> = None;
-        for node in self.nodes.iter().filter(|node| visible(node.layer)) {
+        for node in self
+            .nodes
+            .iter()
+            .filter(|node| visible(node.layer) || node.layer == GIZMO_LAYER)
+        {
             let Some(world) = worlds.get(node.id.as_ref()) else {
                 continue;
             };
             let Some(distance) = intersect(ray, world, node.geometry.bounds()) else {
                 continue;
             };
-            if best.as_ref().is_none_or(|hit| distance <= hit.distance) {
+            // Gizmo layer always wins over a non-gizmo hit at the same distance.
+            let wins = if node.layer == GIZMO_LAYER {
+                best.as_ref().is_none_or(|hit| {
+                    hit.distance < distance
+                        || (hit.distance == distance && hit.id != node.id.as_ref())
+                })
+            } else {
+                best.as_ref().is_none_or(|hit| distance <= hit.distance)
+            };
+            if wins {
                 best = Some(Hit {
                     id: node.id.clone(),
                     distance,
@@ -875,6 +947,19 @@ mod tests {
         assert!((opacities["inner"] - 0.25).abs() < 1e-6);
         assert!((opacities["leaf"] - 0.25).abs() < 1e-6);
         assert!((opacities["loose"] - 1.0).abs() < 1e-6);
+    }
+
+    #[cfg(feature = "gradmesh")]
+    #[test]
+    fn a_group_draws_nothing_and_hides_nothing_that_hangs_from_it() {
+        let group: ViewNode<()> = ViewNode::group("group");
+        assert!(!group.pickable);
+        assert!(!group.casts_shadow);
+        assert!((group.opacity - 1.0).abs() < f32::EPSILON);
+        let view: TestView = View::new()
+            .with(group)
+            .with(ViewNode::circle("leaf", 1.0).with_parent("group"));
+        assert!((view.effective_opacities()["leaf"] - 1.0).abs() < 1e-6);
     }
 
     #[test]

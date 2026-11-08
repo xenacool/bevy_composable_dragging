@@ -62,6 +62,7 @@ behavior, so they compose.
 | `.change_gap(f)` / `.change_result(f)` / `.change_frame(f)` | Rewrites the reported gap, the whole frame, or the pointer position before it reaches the inner spec. |
 | `.with_init_context(f)` | Changes the `DragContext` (dragged node, start state) before the inner spec compiles. |
 | `custom(compile)` | Defines a behavior from scratch; the counterpart of Dragology's `custom` and the same as `DragSpec::new`. |
+| `button(radius)` | Activates on a click within `radius` of the node, like a press-and-release with no movement. |
 
 ## Drag spaces and transforms
 
@@ -92,6 +93,47 @@ commits the exact step on release. `scale_uniform` adds one more cube beside the
 all three axes together: it drags in the plane that faces the camera, and its factor grows by one
 for every unit the pointer moves away from the pivot. Because the handles are nodes, they fade in
 and out when the tool changes. See `examples/gizmo_3d.rs`.
+
+An editor usually shows the gizmo of the selection only for the tools that transform it. A state
+says so by implementing `gizmo::GizmoReveal`, and `Gizmo::add_if_revealed` adds the handles only
+then.
+
+Gizmo handles live on render layer [`gizmo::GIZMO_LAYER`](bevy_composable_dragging::gizmo::GIZMO_LAYER)
+(31) so they are always picked first, even when scene geometry covers them. The common camera
+helpers (`spawn_cameras`, `spawn_perspective_scene`) include this layer automatically.
+
+## Editor building blocks
+
+Four more modules (behind the `gradmesh` feature) are generic over the state of your interface and
+plug in through traits, so an editor reuses them instead of writing its own:
+
+- `hud`: a HUD of ordinary nodes. `Screen` is the size of the HUD and the projection of the scene
+  camera, `Layout` places corners and fans petals on screen by their `Footprint`s (the petal and
+  its label) into a `Fan` of one or more rings, and `Theme` holds the colors, border,
+  tween and render layer of the HUD with the builders of its bordered shapes. A state that
+  implements `HudHost` keeps its `Screen` in step with the window through `HudPlugin`, which reads
+  the camera marked `HudProjectionCamera` (or one you name).
+- `radial`: a radial menu with a hub, rings of petals, a status panel and `Text2d` labels
+  (`RadialMenuPlugin`). Implement `Petal` for the items, `Ring` for the rings and `RadialHost` for
+  the state, and `push_menu` adds the whole menu to a view. The items can be anything: the menu does
+  not know what a petal does.
+- `heightmap`: an editable terrain that needs no rendering feature. A `Heightmap` is a grid of
+  shared chunks over a `Grid` (chunk count, chunk side, origin and cell size), with a hole mask. A
+  `Brush` raises and lowers it between limits you give, `surface`, `height_at` and `normal_at`
+  read it, `hit` finds where a ray meets it, and `chunk_heights` and `chunk_key` tell a renderer
+  what to build and when a chunk's mesh is out of date.
+- `handles`: `CurveHandles` edits a 3D curve with gems that move control points across the ground,
+  cones that raise them, gems that insert points and, for the chosen point, a width handle and a
+  roll ring, all built on `across_plane`, `along_axis` and `around_axis`.
+
+HUD elements are `Geometry::Sdf(SdfShape)` nodes (`ViewNode::sdf`): rounded rectangles and
+ellipses with a border, drawn per pixel so their edges stay crisp at any size.
+`ViewNode::with_overshoot` makes the transform of a node run past its target by a fraction of the
+distance and settle back when an animation ends; the HUD uses twelve percent.
+
+`ViewNode::group` creates an invisible parent node for organizing children without drawing anything.
+`ViewNode::pickable(false)` makes a node invisible to picking, so it renders but never captures
+presses.
 
 ## Blending
 
@@ -135,7 +177,7 @@ deliberate:
   operators and `Gizmo` build on that. `Geometry::Grad` takes any `bevy_gradmesh` shape where
   Dragology draws SVG elements; text, filters and drop shadows have no counterpart.
 - **Blending of different point counts.** Dragology morphs paths with different segment counts;
-  `bevy_gradmesh` 0.2.4 resamples polygons of different lengths in `Shape::lerp`, so tiles that
+  `bevy_gradmesh` 0.2.7 resamples polygons of different lengths in `Shape::lerp`, so tiles that
   change their number of sides morph here too. Shapes of different kinds still come from the
   nearer state.
 - **Not ported:** the SVG and React layer, the tree and path utilities, the studio and benchmark
@@ -160,8 +202,8 @@ The test cases of Dragology's `closest.test.tsx`, `userOps.test.tsx`, `math/dela
 | `gradient_hanoi_3d`: `shapes-3d` | `gradient_kanban_2d`: `shapes-2d` | `hello`: minimal `state` example |
 | ![chain_of_cells](https://raw.githubusercontent.com/xenacool/bevy_composable_dragging/main/screenshots/screenshot_chain_of_cells.webp) | ![blend_square](https://raw.githubusercontent.com/xenacool/bevy_composable_dragging/main/screenshots/screenshot_blend_square.webp) | ![tactile_tessellations](https://raw.githubusercontent.com/xenacool/bevy_composable_dragging/main/screenshots/screenshot_tactile_tessellations.webp) |
 | `chain_of_cells`: `with_chaining`, overlay underline, drop transition | `blend_square`: `between_with` natural neighbor and sharpness | `tactile_tessellations`: edge-to-edge snaps with rotation |
-| ![gizmo_3d](https://raw.githubusercontent.com/xenacool/bevy_composable_dragging/main/screenshots/screenshot_gizmo_3d.webp) | | |
-| `gizmo_3d`: translate, rotate and scale gizmos in 3D drag spaces | | |
+| ![gizmo_3d](https://raw.githubusercontent.com/xenacool/bevy_composable_dragging/main/screenshots/screenshot_gizmo_3d.webp) | ![cozy_castle](https://raw.githubusercontent.com/xenacool/bevy_composable_dragging/main/screenshots/screenshot_cozy_castle_menu.webp) | ![kart_racer_editor](https://raw.githubusercontent.com/xenacool/bevy_composable_dragging/main/screenshots/screenshot_kart_racer_editor_menu.webp) |
+| `gizmo_3d`: translate, rotate and scale gizmos in 3D drag spaces | `cozy_castle`: terrain, walls and radial menu | `kart_racer_editor`: track editor with sweep road and heightfield |
 
 `tessellations` snaps tiles to a grid and shows a toolbar and chaining, while `tactile_tessellations` is a port of Dragology's demo of the same name: regular polygons that snap edge to edge with rotation, `closest` with `when_far`, a palette and a trash bin.
 
@@ -171,7 +213,7 @@ The test cases of Dragology's `closest.test.tsx`, `userOps.test.tsx`, `math/dela
 
 | Feature | Description |
 |---|---|
-| `gradmesh` | Adds `Geometry::Grad(Shape)`: any [`bevy_gradmesh`](https://github.com/xenacool/bevy_gradmesh) 0.2.4 shape, 2D or 3D, as the geometry of a node (`ViewNode::grad`, `sphere`, `cuboid`, `cylinder`, `cone`, `torus`, `disc`, `ring`, `star`). Meshes are cached by shape, nodes are picked by the real bounds of the shape, and blending two views morphs matching shapes with `Shape::lerp` and their gradient `Style`s with `Style::lerp`. `ViewNode::with_style` gives a node its own gradient. |
+| `gradmesh` | Adds `Geometry::Grad(Shape)`: any [`bevy_gradmesh`](https://github.com/xenacool/bevy_gradmesh) 0.2.7 shape, 2D or 3D, as the geometry of a node (`ViewNode::grad`, `sphere`, `cuboid`, `cylinder`, `cone`, `torus`, `disc`, `ring`, `star`). Meshes are cached by shape, nodes are picked by the real bounds of the shape, and blending two views morphs matching shapes with `Shape::lerp` and their gradient `Style`s with `Style::lerp`. `ViewNode::with_style` gives a node its own gradient. |
 | `pbr` | `Geometry::Mesh(MeshGeometry)` (`ViewNode::mesh`) draws a mesh you generate yourself, such as terrain. A `MeshGeometry` is a mesh with a `key`: equal keys are the same geometry and share one mesh asset, so give an edited mesh a new key. Bounds are measured from the positions once, picking uses them, and a blend takes the nearer of two meshes. With `gradmesh` it is drawn with the gradient material (give it positions, normals, `UV_0` and optionally vertex colors); it is a stopgap for `bevy_gradmesh` shapes built from meshes. |
 | `shapes-3d` | Enables `gradmesh`; the name of the 3D examples. |
 | `shapes-2d` | Enables `gradmesh`; the name of the flat examples. They use `DraggablePlugin::with_rendering(Rendering::Flat)`, which draws every node as a `Mesh2d` with an unlit 2D material under a `Camera2d`. The default `Rendering::Spatial` draws `Mesh3d` entities under a `Camera3d`; any `Geometry` works in both, with the same drags and picking, and single nodes can pick their own mode (see *Rendering modes and a HUD*). |

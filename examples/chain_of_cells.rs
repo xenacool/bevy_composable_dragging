@@ -83,7 +83,7 @@ fn main() {
                 .animation(600),
         )
         .add_systems(Startup, |mut commands: Commands| {
-            common::spawn_cameras(&mut commands, 5.0);
+            common::spawn_cameras(&mut commands, 6.0);
         })
         .run();
 }

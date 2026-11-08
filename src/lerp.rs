@@ -9,6 +9,7 @@ use bevy::prelude::Transform;
 use bevy_gradmesh::Style;
 
 use crate::blend::{Blend, Presence};
+use crate::easing::{ease_out, ease_out_back};
 use crate::geometry::Geometry;
 #[cfg(feature = "gradmesh")]
 use crate::shapes::gradient_style;
@@ -81,15 +82,44 @@ enum Side {
 ///   view.
 /// - A node that only exists in `a` or only in `b` follows its [`Presence`]: it fades (the
 ///   default), grows from another node, or pops at the midpoint.
+///
+/// The [`overshoot`](ViewNode::overshoot) of a node only applies to the animation of an engine
+/// transition, never to this plain blend.
 #[must_use]
 pub fn lerp_views<S>(a: &View<S>, b: &View<S>, t: f32) -> View<S> {
-    blend_pair(a, b, t, None)
+    blend_pair(
+        a,
+        b,
+        Pace {
+            blend: t,
+            progress: None,
+        },
+        None,
+    )
+}
+
+/// The view `progress` of the way through an animation from `a` to `b`: most nodes follow the
+/// ease-out curve, and nodes with an overshoot their own back curve.
+pub(crate) fn animate_views<S>(a: &View<S>, b: &View<S>, progress: f32) -> View<S> {
+    let blend = ease_out(progress);
+    let progress = Some(progress);
+    blend_pair(a, b, Pace { blend, progress }, None)
+}
+
+/// How far along a blend is.
+#[derive(Clone, Copy)]
+struct Pace {
+    /// The blend factor of ordinary properties.
+    blend: f32,
+    /// How far the animation has come, from which nodes with an overshoot get their own curve,
+    /// or `None` for a blend that is not an animation, whose nodes never overshoot.
+    progress: Option<f32>,
 }
 
 /// Blends two views. The discrete properties of a node come from the node of `discrete` with
 /// the same id when there is one, and from the nearer view otherwise.
-fn blend_pair<S>(a: &View<S>, b: &View<S>, t: f32, discrete: Option<&View<S>>) -> View<S> {
-    let t = t.clamp(0.0, 1.0);
+fn blend_pair<S>(a: &View<S>, b: &View<S>, pace: Pace, discrete: Option<&View<S>>) -> View<S> {
+    let t = pace.blend.clamp(0.0, 1.0);
     let nearer_is_a = t < 0.5;
     let worlds_a = a.world_transforms();
     let worlds_b = b.world_transforms();
@@ -99,9 +129,15 @@ fn blend_pair<S>(a: &View<S>, b: &View<S>, t: f32, discrete: Option<&View<S>>) -
         let id = node_a.id.as_ref();
         if let Some(node_b) = b.get(id) {
             let nearer = if nearer_is_a { node_a } else { node_b };
+            let motion = match pace.progress {
+                Some(progress) if node_b.overshoot > 0.0 => {
+                    ease_out_back(progress, node_b.overshoot)
+                }
+                _ => t,
+            };
             entries.push(Blended {
                 discrete: nearer,
-                world: worlds_a[id].blend(&worlds_b[id], t),
+                world: worlds_a[id].blend(&worlds_b[id], motion),
                 color: node_a.color.blend(&node_b.color, t),
                 opacity: node_a.opacity.blend(&node_b.opacity, t),
                 #[cfg(feature = "gradmesh")]
@@ -156,7 +192,9 @@ fn blend_pair<S>(a: &View<S>, b: &View<S>, t: f32, discrete: Option<&View<S>>) -
             geometry: entry.geometry.clone(),
             opacity: entry.opacity,
             presence: node.presence.clone(),
+            overshoot: node.overshoot,
             casts_shadow: node.casts_shadow,
+            pickable: node.pickable,
             rendering: node.rendering,
             layer: node.layer,
             drag: node.drag.clone(),
@@ -258,7 +296,11 @@ pub fn blend_views<S: Clone>(views: &[&View<S>], weights: &[f32]) -> View<S> {
     let mut blended = first.clone();
     for (view, weight) in active {
         total += weight;
-        blended = blend_pair(&blended, view, weight / total, Some(heaviest));
+        let pace = Pace {
+            blend: weight / total,
+            progress: None,
+        };
+        blended = blend_pair(&blended, view, pace, Some(heaviest));
     }
     blended
 }
@@ -295,6 +337,45 @@ mod tests {
         let b: TestView = View::new().with(dot("n", 9.0));
         assert!((lerp_views(&a, &b, 0.0).world_position("n").unwrap().x - 1.0).abs() < 1e-5);
         assert!((lerp_views(&a, &b, 1.0).world_position("n").unwrap().x - 9.0).abs() < 1e-5);
+    }
+
+    #[test]
+    fn a_node_with_overshoot_runs_twelve_percent_past_its_target_and_settles_on_it() {
+        let a: TestView = View::new().with(dot("n", 0.0)).with(dot("plain", 0.0));
+        let b: TestView = View::new()
+            .with(dot("n", 10.0).with_overshoot(0.12))
+            .with(dot("plain", 10.0));
+        let positions: Vec<(f32, f32)> = (0..=200)
+            .map(|step| {
+                let view = animate_views(&a, &b, step as f32 / 200.0);
+                (
+                    view.world_position("n").unwrap().x,
+                    view.world_position("plain").unwrap().x,
+                )
+            })
+            .collect();
+        let peak = positions.iter().map(|p| p.0).fold(f32::MIN, f32::max);
+        assert!((peak - 11.2).abs() < 0.02, "{peak}");
+        let plain_peak = positions.iter().map(|p| p.1).fold(f32::MIN, f32::max);
+        assert!(plain_peak <= 10.0 + 1e-4, "{plain_peak}");
+        let (last, plain_last) = positions[200];
+        assert!((last - 10.0).abs() < 1e-4 && (plain_last - 10.0).abs() < 1e-4);
+        assert!(positions[0].0.abs() < 1e-4);
+    }
+
+    #[test]
+    fn overshoot_moves_only_the_transform_and_never_a_weighted_blend() {
+        let a: TestView = View::new().with(dot("n", 0.0).with_opacity(0.0));
+        let b: TestView = View::new().with(dot("n", 10.0).with_overshoot(0.12));
+        let late = animate_views(&a, &b, 0.5);
+        assert!(
+            late.get("n").unwrap().opacity <= 1.0,
+            "opacity never overshoots"
+        );
+        let weighted = blend_views(&[&a, &b], &[0.5, 0.5]);
+        assert!((weighted.world_position("n").unwrap().x - 5.0).abs() < 1e-4);
+        assert!((lerp_views(&a, &b, 1.0).world_position("n").unwrap().x - 10.0).abs() < 1e-4);
+        assert!((lerp_views(&a, &b, 0.5).world_position("n").unwrap().x - 5.0).abs() < 1e-4);
     }
 
     #[test]

@@ -1,7 +1,9 @@
 //! Turns picking events into drags.
 
 use bevy::camera::visibility::RenderLayers;
-use bevy::picking::events::{PointerDrag, PointerDragEnd, PointerDragStart, PointerPress};
+use bevy::picking::events::{
+    PointerClick, PointerDrag, PointerDragEnd, PointerDragStart, PointerPress,
+};
 use bevy::picking::pointer::PointerButton;
 use bevy::prelude::*;
 
@@ -73,6 +75,25 @@ pub(crate) fn on_press<S: Clone + Send + Sync + 'static>(
         visible,
     ) {
         press.propagate(false);
+    }
+}
+
+/// Applies the press of a node that was released without any movement, so that a click works
+/// like a drag that does not move. A press that turned into a drag has no pending press left.
+pub(crate) fn on_click<S: Clone + Send + Sync + 'static>(
+    mut click: On<PointerClick>,
+    nodes: Query<&DragNode<S>>,
+    cameras: Query<(&Camera, &GlobalTransform)>,
+    mut model: ResMut<DragModel<S>>,
+) {
+    if click.button != PointerButton::Primary || nodes.get(click.entity).is_err() {
+        return;
+    }
+    let Some(ray) = pointer_ray(&cameras, click.hit.camera, click.pointer.position) else {
+        return;
+    };
+    if model.tap(ray) {
+        click.propagate(false);
     }
 }
 

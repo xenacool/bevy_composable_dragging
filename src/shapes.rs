@@ -13,7 +13,9 @@ use crate::view::ViewNode;
 #[cfg(feature = "gradmesh")]
 use bevy::sprite_render::{AlphaMode2d, ColorMaterial, MeshMaterial2d};
 #[cfg(feature = "gradmesh")]
-use bevy_gradmesh::{GradMeshMaterial, GradMeshMaterial2d, GradMeshMaterialPool, Style};
+use bevy_gradmesh::{
+    GradMeshMaterial, GradMeshMaterial2d, GradMeshMaterialPool, SdfMaterial2d, Style,
+};
 
 impl Geometry {
     /// Builds the mesh of the geometry, flat for `Mesh2d` or in 3D otherwise.
@@ -26,6 +28,8 @@ impl Geometry {
             Self::Grad(shape) if flat => shape.build_2d(),
             #[cfg(feature = "gradmesh")]
             Self::Grad(shape) => shape.build(),
+            #[cfg(feature = "gradmesh")]
+            Self::Sdf(shape) => Rectangle::from_size(shape.quad_size()).into(),
             Self::Mesh(mesh) => mesh.mesh().clone(),
         }
     }
@@ -77,7 +81,25 @@ fn flat_material(color: LinearRgba) -> StandardMaterial {
 
 /// The number of steps the alpha of a fading gradient is quantized to.
 #[cfg(feature = "gradmesh")]
-const ALPHA_STEPS: f32 = 32.0;
+const ALPHA_STEPS: f32 = 16.0;
+
+/// The number of pooled gradient materials above which the pool lets go of the ones that
+/// nothing draws any more. Each fade step of each style is a material of its own, and the pool
+/// holds on to every one of them, so without this a session only ever adds to the total.
+#[cfg(feature = "gradmesh")]
+pub(crate) const POOL_LIMIT: usize = 32;
+
+/// Makes the material pool forget its materials once it holds more than [`POOL_LIMIT`].
+///
+/// Entities keep the handle of the material they are drawn with, so only materials that nothing
+/// uses are freed. Styles that are still in use are pooled again the next time a node asks for
+/// them.
+#[cfg(feature = "gradmesh")]
+pub(crate) fn release_unused_materials(mut pool: ResMut<GradMeshMaterialPool>) {
+    if pool.len() > POOL_LIMIT {
+        pool.clear();
+    }
+}
 
 /// The gradient of nodes without a style of their own: their color on top and a darker shade
 /// below. Blending their colors therefore blends their gradients too.
@@ -123,6 +145,8 @@ pub(crate) struct Looks<'w> {
     flat_2d: Option<ResMut<'w, Assets<ColorMaterial>>>,
     #[cfg(feature = "gradmesh")]
     gradient_2d: Option<ResMut<'w, Assets<GradMeshMaterial2d>>>,
+    #[cfg(feature = "gradmesh")]
+    sdf_2d: Option<ResMut<'w, Assets<SdfMaterial2d>>>,
 }
 
 impl Looks<'_> {
@@ -182,7 +206,8 @@ impl Looks<'_> {
         #[cfg(feature = "gradmesh")]
         entity
             .remove::<MeshMaterial2d<ColorMaterial>>()
-            .remove::<MeshMaterial2d<GradMeshMaterial2d>>();
+            .remove::<MeshMaterial2d<GradMeshMaterial2d>>()
+            .remove::<MeshMaterial2d<SdfMaterial2d>>();
         #[cfg(not(feature = "gradmesh"))]
         let _ = mode;
         #[cfg(feature = "gradmesh")]
@@ -218,6 +243,18 @@ impl Looks<'_> {
         node: &ViewNode<S>,
         opacity: f32,
     ) {
+        if let Geometry::Sdf(shape) = &node.geometry {
+            let Some(sdf) = self.sdf_2d.as_mut() else {
+                return;
+            };
+            let mut color = node.color;
+            color.alpha *= opacity;
+            entity
+                .insert(MeshMaterial2d(sdf.add(shape.material(color))))
+                .remove::<MeshMaterial2d<ColorMaterial>>()
+                .remove::<MeshMaterial2d<GradMeshMaterial2d>>();
+            return;
+        }
         let (Some(flat), Some(gradient)) = (self.flat_2d.as_mut(), self.gradient_2d.as_mut())
         else {
             return;
@@ -232,7 +269,8 @@ impl Looks<'_> {
             }
             entity
                 .insert(MeshMaterial2d(gradient.add(style.build_2d())))
-                .remove::<MeshMaterial2d<ColorMaterial>>();
+                .remove::<MeshMaterial2d<ColorMaterial>>()
+                .remove::<MeshMaterial2d<SdfMaterial2d>>();
         } else {
             let mut color = node.color;
             color.alpha *= opacity;
@@ -246,7 +284,8 @@ impl Looks<'_> {
                     },
                     ..default()
                 })))
-                .remove::<MeshMaterial2d<GradMeshMaterial2d>>();
+                .remove::<MeshMaterial2d<GradMeshMaterial2d>>()
+                .remove::<MeshMaterial2d<SdfMaterial2d>>();
         }
     }
 }

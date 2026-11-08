@@ -8,9 +8,15 @@
 mod behavior;
 mod blend;
 pub mod constraint;
+mod easing;
 mod geometry;
 #[cfg(feature = "gradmesh")]
 pub mod gizmo;
+#[cfg(feature = "gradmesh")]
+pub mod handles;
+pub mod heightmap;
+#[cfg(feature = "gradmesh")]
+pub mod hud;
 #[cfg(feature = "pbr")]
 mod input;
 mod lerp;
@@ -19,9 +25,13 @@ pub mod ops;
 mod param;
 #[cfg(feature = "pbr")]
 mod plugin;
+#[cfg(feature = "gradmesh")]
+pub mod radial;
 #[cfg(feature = "pbr")]
 mod render;
 mod rendering;
+#[cfg(feature = "gradmesh")]
+mod sdf;
 #[cfg(feature = "pbr")]
 mod shapes;
 mod solver;
@@ -44,6 +54,8 @@ pub use param::Param;
 #[cfg(feature = "pbr")]
 pub use plugin::DraggablePlugin;
 pub use rendering::Rendering;
+#[cfg(feature = "gradmesh")]
+pub use sdf::SdfShape;
 pub use space::{DragSpace, Pointer};
 pub use spec::DragSpec;
-pub use view::{DragFactory, Hit, NodeId, View, ViewNode};
+pub use view::{DragFactory, GIZMO_LAYER, Hit, NodeId, View, ViewNode};

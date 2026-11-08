@@ -24,6 +24,8 @@ pub(crate) struct DragNode<S: 'static> {
     /// The opacity the node was drawn with, multiplied through its ancestors.
     opacity: f32,
     casts_shadow: bool,
+    /// Whether the pointer can hit the entity.
+    pickable: bool,
     /// The rendering mode the entity was drawn with.
     mode: Rendering,
     /// The render layer of the entity.
@@ -40,6 +42,15 @@ pub(crate) struct NodeEntities<S: 'static>(HashMap<NodeId, Entity>, PhantomData<
 impl<S> Default for NodeEntities<S> {
     fn default() -> Self {
         Self(HashMap::new(), PhantomData)
+    }
+}
+
+/// The picking behavior of a node: hit as usual, or ignored by the pointer altogether.
+fn pickable(pickable: bool) -> Pickable {
+    if pickable {
+        Pickable::default()
+    } else {
+        Pickable::IGNORE
     }
 }
 
@@ -93,6 +104,7 @@ pub(crate) fn sync_nodes<S: Clone + Send + Sync + 'static>(
                 || style_changed(&marker, node)
                 || (marker.opacity - opacity).abs() > f32::EPSILON
                 || marker.casts_shadow != node.casts_shadow
+                || marker.pickable != node.pickable
                 || marker.mode != mode
                 || marker.layer != node.layer
             {
@@ -108,6 +120,10 @@ pub(crate) fn sync_nodes<S: Clone + Send + Sync + 'static>(
                 marker.color = node.color;
                 marker.opacity = opacity;
                 marker.casts_shadow = node.casts_shadow;
+                if marker.pickable != node.pickable {
+                    entity_commands.insert(pickable(node.pickable));
+                    marker.pickable = node.pickable;
+                }
                 marker.mode = mode;
                 marker.layer = node.layer;
                 #[cfg(feature = "gradmesh")]
@@ -130,12 +146,14 @@ pub(crate) fn sync_nodes<S: Clone + Send + Sync + 'static>(
                     style: node.style.clone(),
                     opacity,
                     casts_shadow: node.casts_shadow,
+                    pickable: node.pickable,
                     mode,
                     layer: node.layer,
                     hidden: false,
                     state: PhantomData,
                 },
                 RenderLayers::layer(node.layer),
+                pickable(node.pickable),
             ));
             looks.apply_mesh(&mut spawned, &node.geometry, mode);
             looks.apply_material(&mut spawned, node, opacity, mode);
@@ -170,7 +188,8 @@ pub(crate) fn sync_nodes<S: Clone + Send + Sync + 'static>(
             }
             return true;
         }
-        commands.entity(*entity).despawn();
+        // A node whose ancestor is removed too goes down with it, so its entity may already be gone.
+        commands.entity(*entity).try_despawn();
         false
     });
 }
@@ -179,10 +198,13 @@ pub(crate) fn sync_nodes<S: Clone + Send + Sync + 'static>(
 mod tests {
     use bevy::asset::AssetPlugin;
     use bevy::sprite_render::{ColorMaterial, MeshMaterial2d};
-    use bevy_gradmesh::{GradMeshMaterial, GradMeshMaterial2d, GradMeshMaterialPool};
+    use bevy_gradmesh::{
+        GradMeshMaterial, GradMeshMaterial2d, GradMeshMaterialPool, SdfMaterial2d,
+    };
 
     use super::*;
     use crate::geometry::MeshGeometry;
+    use crate::sdf::SdfShape;
     use crate::shapes::ShapeMeshes;
     use crate::view::View;
 
@@ -203,6 +225,7 @@ mod tests {
             .init_asset::<GradMeshMaterial>()
             .init_asset::<ColorMaterial>()
             .init_asset::<GradMeshMaterial2d>()
+            .init_asset::<SdfMaterial2d>()
             .init_resource::<GradMeshMaterialPool>()
             .init_resource::<ShapeMeshes>()
             .init_resource::<NodeEntities<()>>()
@@ -263,6 +286,130 @@ mod tests {
             app.world()
                 .entity(round)
                 .contains::<MeshMaterial2d<GradMeshMaterial2d>>()
+        );
+    }
+
+    fn panel_view() -> View<()> {
+        View::new().with(ViewNode::sdf(
+            "panel",
+            SdfShape::rect(Vec2::new(40.0, 20.0)).with_corner_radius(4.0),
+        ))
+    }
+
+    #[test]
+    fn an_sdf_node_is_drawn_flat_on_a_quad_with_room_for_its_fringe() {
+        let mut app = app_with(Rendering::Flat, panel_view);
+        let entity = entity_of(&mut app, "panel");
+        let entity = app.world().entity(entity);
+        assert!(entity.contains::<MeshMaterial2d<SdfMaterial2d>>());
+        assert!(!entity.contains::<MeshMaterial2d<ColorMaterial>>());
+        let handle = entity.get::<Mesh2d>().unwrap().0.id();
+        let mesh = app.world().resource::<Assets<Mesh>>().get(handle).unwrap();
+        let positions = mesh
+            .attribute(Mesh::ATTRIBUTE_POSITION)
+            .and_then(|positions| positions.as_float3())
+            .unwrap();
+        let width = positions.iter().map(|p| p[0]).fold(f32::MIN, f32::max)
+            - positions.iter().map(|p| p[0]).fold(f32::MAX, f32::min);
+        assert!((width - 44.0).abs() < 1e-4, "{width}");
+    }
+
+    #[test]
+    fn a_long_animation_does_not_pile_up_gradient_materials() {
+        use std::sync::atomic::{AtomicU32, Ordering};
+
+        use crate::shapes::{POOL_LIMIT, release_unused_materials};
+
+        static STEP: AtomicU32 = AtomicU32::new(0);
+        fn view() -> View<()> {
+            let hue = STEP.load(Ordering::Relaxed) as f32;
+            View::new().with(ViewNode::sphere("orb", 0.5).with_color(Color::hsl(
+                hue * 3.0 % 360.0,
+                0.8,
+                0.5,
+            )))
+        }
+        let mut app = app_with(Rendering::Spatial, view);
+        app.add_systems(Update, release_unused_materials.after(sync_nodes::<()>));
+        for step in 1..=120 {
+            STEP.store(step, Ordering::Relaxed);
+            app.world_mut()
+                .resource_mut::<DragModel<()>>()
+                .set_state(());
+            app.update();
+        }
+        app.update();
+        let count = app.world().resource::<Assets<GradMeshMaterial>>().len();
+        assert!(count <= POOL_LIMIT + 2, "{count} materials are alive");
+        let orb = entity_of(&mut app, "orb");
+        assert!(
+            app.world()
+                .entity(orb)
+                .contains::<MeshMaterial3d<GradMeshMaterial>>()
+        );
+    }
+
+    #[test]
+    fn a_node_the_pointer_cannot_hit_ignores_it_and_can_change_its_mind() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+
+        static HITTABLE: AtomicBool = AtomicBool::new(false);
+        fn view() -> View<()> {
+            View::new()
+                .with(ViewNode::sphere("label", 0.5).pickable(HITTABLE.load(Ordering::Relaxed)))
+        }
+        let mut app = app_with(Rendering::Spatial, view);
+        let label = entity_of(&mut app, "label");
+        assert_eq!(app.world().get::<Pickable>(label), Some(&Pickable::IGNORE));
+        HITTABLE.store(true, Ordering::Relaxed);
+        app.world_mut()
+            .resource_mut::<DragModel<()>>()
+            .set_state(());
+        app.update();
+        assert_eq!(
+            app.world().get::<Pickable>(label),
+            Some(&Pickable::default())
+        );
+    }
+
+    #[test]
+    fn a_parent_and_its_child_can_leave_the_view_together() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+
+        static GONE: AtomicBool = AtomicBool::new(false);
+        fn view() -> View<()> {
+            let mut view = View::new();
+            if !GONE.load(Ordering::Relaxed) {
+                for pair in 0..24 {
+                    view.push(ViewNode::sphere(format!("parent{pair}"), 0.5));
+                    view.push(
+                        ViewNode::sphere(format!("child{pair}"), 0.25)
+                            .with_parent(format!("parent{pair}")),
+                    );
+                }
+            }
+            view
+        }
+        let mut app = app_with(Rendering::Spatial, view);
+        assert_eq!(
+            app.world_mut()
+                .query::<&DragNode<()>>()
+                .iter(app.world())
+                .count(),
+            48
+        );
+        GONE.store(true, Ordering::Relaxed);
+        app.world_mut()
+            .resource_mut::<DragModel<()>>()
+            .set_state(());
+        app.update();
+        app.update();
+        assert_eq!(
+            app.world_mut()
+                .query::<&DragNode<()>>()
+                .iter(app.world())
+                .count(),
+            0
         );
     }
 

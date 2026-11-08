@@ -7,12 +7,16 @@ use bevy::camera::ScalingMode;
 use bevy::camera::visibility::RenderLayers;
 use bevy::prelude::*;
 use bevy::render::RenderPlugin;
+use bevy_composable_dragging::GIZMO_LAYER;
 
 // Adapted from `bevy_gradmesh`, so its lint findings are allowed instead of edited.
 #[allow(clippy::pedantic, clippy::unnecessary_cast)]
 pub mod screenshot;
 
 pub mod script;
+
+#[cfg(test)]
+pub mod mouse;
 
 /// The default plugins with a 1280x720 window and synchronous shader compilation, so screenshots
 /// never capture a frame that is still compiling.
@@ -67,9 +71,11 @@ fn spawn_overlay_camera(commands: &mut Commands) {
 /// `viewport_height` world units vertically.
 pub fn spawn_cameras(commands: &mut Commands, viewport_height: f32) {
     spawn_overlay_camera(commands);
+    let layers = RenderLayers::from_layers(&[0, GIZMO_LAYER]);
     commands.spawn((
         SceneCamera,
         Camera3d::default(),
+        layers,
         Camera {
             clear_color: ClearColorConfig::None,
             ..default()
@@ -86,9 +92,11 @@ pub fn spawn_cameras(commands: &mut Commands, viewport_height: f32) {
 /// with `Rendering::Flat`.
 pub fn spawn_cameras_2d(commands: &mut Commands, viewport_height: f32) {
     spawn_overlay_camera(commands);
+    let layers = RenderLayers::from_layers(&[0, GIZMO_LAYER]);
     commands.spawn((
         SceneCamera,
         Camera2d,
+        layers,
         Camera {
             clear_color: ClearColorConfig::None,
             ..default()
@@ -126,9 +134,11 @@ pub fn spawn_hud_camera(commands: &mut Commands, viewport_height: f32) {
 /// Spawns a perspective scene camera at `eye` looking at `target`, and a light for lit materials.
 pub fn spawn_perspective_scene(commands: &mut Commands, eye: Vec3, target: Vec3) {
     spawn_overlay_camera(commands);
+    let layers = RenderLayers::from_layers(&[0, GIZMO_LAYER]);
     commands.spawn((
         SceneCamera,
         Camera3d::default(),
+        layers,
         Camera {
             clear_color: ClearColorConfig::None,
             ..default()

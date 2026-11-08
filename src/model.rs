@@ -282,6 +282,19 @@ impl<S: Clone + Send + Sync + 'static> DragModel<S> {
         };
     }
 
+    /// Completes a press that was released without moving, a click: the node is dragged and
+    /// dropped on the spot, so a button acts the same whether or not the pointer moved. Returns
+    /// whether a node was dropped.
+    #[cfg_attr(not(feature = "pbr"), allow(dead_code))]
+    pub(crate) fn tap(&mut self, ray: Ray3d) -> bool {
+        if self.start_drag().is_none() {
+            return false;
+        }
+        self.drive(ray);
+        self.drop_drag();
+        true
+    }
+
     /// Ends the drag by switching to the state the last preview pointed at.
     #[cfg_attr(not(feature = "pbr"), allow(dead_code))]
     pub(crate) fn drop_drag(&mut self) {
@@ -489,6 +502,32 @@ mod tests {
         model.drive(ray_at(Vec2::new(-40.0, 0.0)));
         model.drop_drag();
         assert_eq!(*model.state(), Switch::Off);
+    }
+
+    #[test]
+    fn a_press_released_without_moving_is_a_tap_that_drops_where_it_stands() {
+        let mut model = model();
+        model.set_transition_duration(0.0);
+        assert!(press_at(&mut model, "knob", Vec2::new(-50.0, 0.0)));
+        assert!(model.tap(ray_at(Vec2::new(-50.0, 0.0))));
+        assert!(!model.is_dragging());
+        assert_eq!(*model.state(), Switch::Off);
+        assert!(press_at(&mut model, "knob", Vec2::new(-30.0, 0.0)));
+        assert!(model.tap(ray_at(Vec2::new(-30.0, 0.0))));
+        assert_eq!(*model.state(), Switch::Off);
+        assert!(press_at(&mut model, "knob", Vec2::new(-50.0, 0.0)));
+        model.start_drag();
+        assert!(
+            !model.tap(ray_at(Vec2::new(-50.0, 0.0))),
+            "a drag has no tap"
+        );
+    }
+
+    #[test]
+    fn a_tap_without_a_press_does_nothing() {
+        let mut model = model();
+        assert!(!model.tap(ray_at(Vec2::ZERO)));
+        assert!(!model.is_dragging());
     }
 
     #[test]
