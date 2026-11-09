@@ -77,10 +77,11 @@ impl Ring<MyState> for Page {
 
 ### `RadialHost`
 
-Connects the state to the menu:
+Connects the state to the menu. It extends `HudHost`:
 
 ```rust
 use bevy_composable_dragging::radial::RadialHost;
+use bevy_composable_dragging::hud::Layout;
 
 impl RadialHost for MyState {
     type Ring = Page;
@@ -89,8 +90,16 @@ impl RadialHost for MyState {
         Page::Tools
     }
 
-    fn open_ring(&self) -> Option<Page> {
-        self.menu
+    fn menu(&self) -> Option<Page> {
+        self.menu.clone()
+    }
+
+    fn with_menu(&self, menu: Option<Page>) -> Self {
+        Self { menu, ..self.clone() }
+    }
+
+    fn pop_center(&self, layout: &Layout) -> Vec2 {
+        layout.home()
     }
 
     fn status(&self) -> String {
@@ -101,18 +110,23 @@ impl RadialHost for MyState {
 
 ## Adding the Menu
 
+`push_menu` builds the menu nodes; call it from your view function with the layout and theme:
+
 ```rust
-use bevy_composable_dragging::radial::{RadialMenuPlugin, push_menu};
+use bevy_composable_dragging::hud::Layout;
+use bevy_composable_dragging::radial::{push_menu, RadialMenuPlugin};
 
 fn view(state: &MyState) -> View<MyState> {
     let mut view = View::new();
     // ... scene nodes ...
-    push_menu(state, &mut view);
+    let layout = Layout::new(state.screen());
+    let theme = /* your theme */;
+    push_menu(&mut view, &state_arc, &layout, &theme);
     view
 }
 
-// Register the plugin
-App::add_plugins(RadialMenuPlugin::<MyState, Page>::default());
+// Register the plugin for text labels
+App::add_plugins(RadialMenuPlugin::<MyState>::new(theme));
 ```
 
 ## Glyphs

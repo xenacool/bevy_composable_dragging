@@ -20,24 +20,30 @@ Nodes support several geometry types:
 
 | Geometry | Method | Feature |
 |----------|--------|---------|
-| Circle (2D) | `ViewNode::circle(id, radius)` | `pbr` |
-| Rounded rectangle | `ViewNode::rounded_rect(id, size, radius)` | `pbr` |
-| Sphere | `ViewNode::sphere(id, radius)` | `shapes-3d` |
-| Cuboid | `ViewNode::cuboid(id, size, radius)` | `shapes-3d` |
-| Cylinder | `ViewNode::cylinder(id, radius, height)` | `shapes-3d` |
-| Cone | `ViewNode::cone(id, radius, height)` | `shapes-3d` |
-| Torus | `ViewNode::torus(id, radius, tube)` | `shapes-3d` |
+| Circle (2D) | `ViewNode::circle(id, diameter)` | None |
+| Rectangle (2D) | `ViewNode::rectangle(id, size)` | None |
+| Sphere | `ViewNode::sphere(id, radius)` | `gradmesh` |
+| Cuboid | `ViewNode::cuboid(id, size, roundness)` | `gradmesh` |
+| Cylinder | `ViewNode::cylinder(id, radius, height)` | `gradmesh` |
+| Cone | `ViewNode::cone(id, radius, height)` | `gradmesh` |
+| Torus | `ViewNode::torus(id, radius, thickness)` | `gradmesh` |
+| Disc | `ViewNode::disc(id, radius)` | `gradmesh` |
+| Ring | `ViewNode::ring(id, outer, inner)` | `gradmesh` |
+| Star | `ViewNode::star(id, points, outer, inner)` | `gradmesh` |
 | SDF shape | `ViewNode::sdf(id, shape)` | `gradmesh` |
 | Custom mesh | `ViewNode::mesh(id, mesh_geometry)` | `pbr` |
+| Group | `ViewNode::group(id)` | `gradmesh` |
 
 ## Transforms and Hierarchy
 
-Nodes support full 3D transforms and parent-child hierarchy:
+Nodes support full 3D transforms and parent-child hierarchy. A child node is positioned relative to its parent using `.with_parent()`:
 
 ```rust
-ViewNode::sphere("parent", 1.0)
-    .at(Vec3::new(0.0, 2.0, 0.0))
-    .with(ViewNode::sphere("child", 0.3).at(Vec3::new(1.5, 0.0, 0.0)))
+View::new()
+    .with(ViewNode::sphere("parent", 1.0).at(Vec3::new(0.0, 2.0, 0.0)))
+    .with(ViewNode::sphere("child", 0.3)
+        .with_parent("parent")
+        .at(Vec3::new(1.5, 0.0, 0.0)))
 ```
 
 Transform methods:
@@ -72,7 +78,7 @@ Control how nodes appear and disappear during blends:
 use bevy_composable_dragging::Presence;
 
 ViewNode::sphere("fade", 1.0)
-    .with_presence(Presence::Fade)       // fades in/out during blends
+    .presence(Presence::Fade)            // fades in/out during blends
     .with_opacity(0.8)                   // semi-transparent
 ```
 
@@ -84,14 +90,14 @@ Presence options:
 ## Rendering Modes
 
 ```rust
-use bevy_composable_dragging::Rendering;
-
 // 3D spatial rendering (default)
 ViewNode::sphere("spatial", 1.0).spatial()
 
 // 2D flat rendering (requires gradmesh)
 ViewNode::sphere("flat", 1.0).flat()
 ```
+
+`ViewNode::spatial()` draws a node as a `Mesh3d` for a `Camera3d`, and `ViewNode::flat()` draws it as a `Mesh2d` for a `Camera2d`, overriding the plugin default. Together with `.on_layer()`, they build a HUD from ordinary nodes over a 3D scene: give the HUD nodes `.flat().on_layer(HUD)` and add a `Camera2d` with that layer and a higher `order` next to the scene camera. Each camera only draws the nodes on its own layers, and a press from it only picks those nodes, so the HUD and the scene never take presses from each other.
 
 ## Layers
 

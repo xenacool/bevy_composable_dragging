@@ -29,53 +29,47 @@ let edited = terrain.raised(&Brush {
 ## Reading the Terrain
 
 ```rust
-// Height at a point
+// Height at a point (including over holes)
 let height = terrain.surface(Vec2::new(4.0, 4.0));
 
-// Height and normal for collision
-let (h, n) = terrain.height_and_normal_at(Vec2::new(4.0, 4.0));
+// Height only where the ground exists (None over holes)
+let height = terrain.height_at(Vec2::new(4.0, 4.0));
+
+// Surface normal for lighting or collision
+let normal = terrain.normal_at(Vec2::new(4.0, 4.0));
 
 // Ray intersection for picking
 if let Some(hit) = terrain.hit(ray) {
-    println!("Hit at {}", hit.position);
+    println!("Hit at {}", hit);
 }
 ```
 
 ## Chunks and Dirty Tracking
 
-The grid is divided into chunks shared via `Arc`. Copying a heightmap is cheap — only the edited chunks are copied. Track changes with `chunk_key`:
+The grid is divided into chunks. Copying a heightmap is cheap — only the edited chunks are copied. Each chunk has a key that changes when its heights or holes change:
 
 ```rust
-// Which chunks changed since the last key?
-let changed = terrain.chunk_key(previous_key);
-
-for chunk_key in changed {
-    // Rebuild the mesh for this chunk
-    let heights = terrain.chunk_heights(chunk_key);
-    let holes = terrain.chunk_holes(chunk_key);
+// Check every chunk for changes
+for chunk in 0..terrain.chunk_count() {
+    let key = terrain.chunk_key(chunk);
+    if key != previous_keys[chunk] {
+        // Rebuild the mesh for this chunk
+        let heights = terrain.chunk_heights(chunk);
+        let holes = terrain.chunk_holes(chunk);
+    }
 }
 ```
 
 ## Holes
 
-Cut holes in the terrain without losing the height data underneath:
+Cut holes in the terrain without losing the height data underneath. Holes are a mask over the cells, so filling a hole restores the original height:
 
 ```rust
 // Cut a hole
-let with_hole = terrain.cut(&Brush {
-    center: Vec2::new(2.0, 2.0),
-    radius: 1.0,
-    amount: 0.0,
-    falloff: 0.0,
-});
+let with_hole = terrain.with_holes(Vec2::new(2.0, 2.0), 1.0, true);
 
 // Fill it back — the original height returns
-let filled = with_hole.fill(&Brush {
-    center: Vec2::new(2.0, 2.0),
-    radius: 1.0,
-    amount: 0.0,
-    falloff: 0.0,
-});
+let filled = with_hole.with_holes(Vec2::new(2.0, 2.0), 1.0, false);
 ```
 
 ## Integration with Views

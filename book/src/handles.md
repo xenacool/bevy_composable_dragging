@@ -81,7 +81,7 @@ Each handle takes a closure that receives the original state, the point index, a
 
 ## Footprint
 
-`CurveHandles::footprint` returns the 2D bounds of all handles, useful for HUD layout.
+`CurveHandles::footprint(index)` returns the 2D bounds of the handles for a specific control point, useful for HUD layout to avoid overlapping elements.
 
 ![Kart Racer Editor](screenshots/screenshot_kart_racer_editor_menu.webp)
 

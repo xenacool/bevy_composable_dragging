@@ -43,15 +43,16 @@ App::new()
 A `Theme` holds colors, border width, tween settings, and the render layer. The HUD builders are methods of the theme:
 
 ```rust
-use bevy_composable_dragging::hud::Theme;
+use bevy_composable_dragging::hud::{Layout, Theme};
 
 let theme = Theme::default();
+let layout = Layout::new(state.screen());
 
-// Build a bordered panel
-let panel = theme.panel("panel", Vec2::new(200.0, 100.0));
+// Build a bordered panel (returns 2 nodes: plate + border)
+let panel = theme.panel("panel", Vec2::new(200.0, 100.0), Vec2::ZERO, &layout);
 
-// Build a button
-let button = theme.button("btn", Vec2::new(80.0, 40.0));
+// Build a filled disc
+let disc = theme.disc("action", 20.0, theme.fill, Vec3::ZERO);
 ```
 
 ## Depth Layers
@@ -74,11 +75,11 @@ HUD elements use `SdfShape` for crisp edges:
 ```rust
 use bevy_composable_dragging::SdfShape;
 
-ViewNode::sdf("panel", SdfShape::rounded_rect(Vec2::new(200.0, 100.0), 8.0))
+ViewNode::sdf("panel", SdfShape::rect(Vec2::new(200.0, 100.0)).with_corner_radius(8.0))
 ```
 
 Available SDF shapes:
-- `rounded_rect(size, radius)` — rounded rectangle
+- `rect(size).with_corner_radius(r)` — rounded rectangle
 - `ellipse(size)` — ellipse
 
 ## Overshoot

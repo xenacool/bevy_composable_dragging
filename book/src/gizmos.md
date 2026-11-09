@@ -5,6 +5,7 @@ The `gizmo` module (behind the `gradmesh` feature) adds translate, rotate, and s
 ## Adding a Gizmo
 
 ```rust
+use bevy::prelude::Transform;
 use bevy_composable_dragging::gizmo::Gizmo;
 use bevy_composable_dragging::ops::Snap;
 use bevy_composable_dragging::{View, ViewNode};
@@ -13,10 +14,23 @@ fn view(state: &MyState) -> View<MyState> {
     let mut view = View::new();
     view.push(ViewNode::sphere("object", 1.0).at(state.position));
     
-    Gizmo::new("object", state.position.extend(Quat::IDENTITY).into())
-        .translate(Snap::step(0.1))
-        .rotate(Snap::step(0.1))
-        .scale_uniform(Snap::step(0.1))
+    let transform = Transform::from_translation(state.position);
+    Gizmo::new("object", transform)
+        .translate(Snap::step(0.1), |s, offset| {
+            let mut s = s.clone();
+            s.position += offset;
+            s
+        })
+        .rotate(Snap::step(0.1), |s, rotation| {
+            let mut s = s.clone();
+            s.rotation *= rotation;
+            s
+        })
+        .scale_uniform(Snap::step(0.1), |s, scale| {
+            let mut s = s.clone();
+            s.scale *= scale;
+            s
+        })
         .add_to(&mut view);
     view
 }
@@ -76,8 +90,12 @@ Then use `Gizmo::add_if_revealed` instead of `add_to`:
 
 ```rust
 Gizmo::new("object", transform)
-    .translate(Snap::step(0.1))
-    .add_if_revealed(&state, &mut view);
+    .translate(Snap::step(0.1), |s, offset| {
+        let mut s = s.clone();
+        s.position += offset;
+        s
+    })
+    .add_if_revealed(&mut view, &state);
 ```
 
 ## Render Layer
@@ -86,19 +104,19 @@ Gizmo handles live on render layer 31 (`GIZMO_LAYER`) so they are always picked 
 
 ## Camera Helpers
 
-The common camera helpers include the gizmo layer automatically:
+The example helpers in `examples/common` include the gizmo layer automatically:
 
 ```rust
-use bevy_composable_dragging::spawn_perspective_scene;
+use bevy_composable_dragging::examples::common::spawn_perspective_scene;
 
 fn setup(mut commands: Commands) {
-    spawn_perspective_scene(&mut commands, Vec3::new(5.0, 5.0, 5.0));
+    spawn_perspective_scene(&mut commands, Vec3::new(5.0, 5.0, 5.0), Vec3::ZERO);
 }
 ```
 
 ## Footprint
 
-`Gizmo::footprint` returns the 2D bounds of all handles, useful for HUD layout to avoid overlapping elements.
+`Gizmo::footprint` returns the world positions of all handle centers, useful for HUD layout to keep elements clear of the gizmo.
 
 ![Gizmo 3D](screenshots/screenshot_gizmo_3d.webp)
 
