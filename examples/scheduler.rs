@@ -135,8 +135,7 @@ fn view(schedule: &Schedule) -> View<Schedule> {
 
 /// Run this example. Called by the WASM runner.
 pub fn run(app: &mut App) {
-    app
-let schedule = Schedule {
+    let schedule = Schedule {
         meetings: vec![
             Meeting {
                 lane: 0,
@@ -165,7 +164,7 @@ let schedule = Schedule {
             },
         ],
     };
-    App::new()
+    app
         .add_plugins(common::default_plugins("scheduler"))
         .add_plugins(DraggablePlugin::new(schedule, view))
         .add_plugins(ScriptedDragPlugin::straight(

@@ -453,8 +453,7 @@ fn view(board: &Board) -> View<Board> {
 
 /// Run this example. Called by the WASM runner.
 pub fn run(app: &mut App) {
-    app
-// A hexagon with a triangle and a square snapped to it, and a square waiting in the palette
+    // A hexagon with a triangle and a square snapped to it, and a square waiting in the palette
     // to be dragged against the other side.
     let hexagon = Tile {
         id: 0,
@@ -476,7 +475,7 @@ pub fn run(app: &mut App) {
         next_id: 2,
     };
     let target = edges(&world_vertices(6, hexagon.pos, 0.0))[5].mid() + Vec2::new(-0.3, 0.2);
-    App::new()
+    app
         .add_plugins(common::default_plugins("tactile_tessellations"))
         .add_plugins(DraggablePlugin::new(board, view))
         .add_plugins(ScriptedDragPlugin::straight(palette_position(4), target))

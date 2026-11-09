@@ -153,8 +153,7 @@ fn view(board: &Board) -> View<Board> {
 
 /// Run this example. Called by the WASM runner.
 pub fn run(app: &mut App) {
-    app
-let tiles = [(0, 0), (1, 1), (5, 2), (7, 0), (11, 1), (12, 2)]
+    let tiles = [(0, 0), (1, 1), (5, 2), (7, 0), (11, 1), (12, 2)]
         .iter()
         .enumerate()
         .map(|(id, &(cell, kind))| Tile {
@@ -165,7 +164,7 @@ let tiles = [(0, 0), (1, 1), (5, 2), (7, 0), (11, 1), (12, 2)]
         })
         .collect();
     let board = Board { tiles, next_id: 6 };
-    App::new()
+    app
         .add_plugins(common::default_plugins("tessellations"))
         .add_plugins(DraggablePlugin::new(board, view))
         .add_plugins(ScriptedDragPlugin::straight(

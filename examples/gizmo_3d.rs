@@ -228,9 +228,8 @@ fn view(scene: &Scene) -> View<Scene> {
 
 /// Run this example. Called by the WASM runner.
 pub fn run(app: &mut App) {
+    let scene = Scene::initial();
     app
-let scene = Scene::initial();
-    App::new()
         .add_plugins(common::default_plugins("gizmo_3d"))
         .add_plugins(DraggablePlugin::new(scene, view))
         .add_plugins(ScriptedDragPlugin::straight(

@@ -124,6 +124,10 @@ impl AutoScreenshotPlugin {
 
 impl Plugin for AutoScreenshotPlugin {
     fn build(&self, app: &mut App) {
+        // No-op on WASM — screenshots are only for headless CI builds
+        if cfg!(target_arch = "wasm32") {
+            return;
+        }
         // Only enable when DSD_SCREENSHOT is set
         if std::env::var("DSD_SCREENSHOT").is_err() {
             return;

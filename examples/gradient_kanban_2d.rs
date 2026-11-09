@@ -127,13 +127,12 @@ fn view(board: &Board) -> View<Board> {
 
 /// Run this example. Called by the WASM runner.
 pub fn run(app: &mut App) {
-    app
-let board = Board {
+    let board = Board {
         columns: [vec![0, 1, 2], vec![3, 4], vec![5]],
     };
     let from =
         position_of(&board, 1).map_or(Vec2::ZERO, |(column, slot)| slot_position(column, slot));
-    App::new()
+    app
         .add_plugins(common::default_plugins("gradient_kanban_2d"))
         .add_plugins(DraggablePlugin::new(board, view).with_rendering(Rendering::Flat))
         .add_plugins(ScriptedDragPlugin::straight(

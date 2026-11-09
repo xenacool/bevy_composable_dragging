@@ -89,6 +89,10 @@ struct Timing {
 
 impl Plugin for ScriptedDragPlugin {
     fn build(&self, app: &mut App) {
+        // No-op on WASM — scripted drags are only for headless screenshot captures
+        if cfg!(target_arch = "wasm32") {
+            return;
+        }
         if std::env::var("DSD_SCREENSHOT").is_err() {
             return;
         }

@@ -85,10 +85,9 @@ fn view(state: &Clock) -> View<Clock> {
 
 /// Run this example. Called by the WASM runner.
 pub fn run(app: &mut App) {
-    app
-let start = Clock { hours: 10.0 };
+    let start = Clock { hours: 10.0 };
     let from = hour_angle(start.hours);
-    App::new()
+    app
         .add_plugins(common::default_plugins("clock"))
         .add_plugins(DraggablePlugin::new(start, view))
         .add_plugins(ScriptedDragPlugin::arc(

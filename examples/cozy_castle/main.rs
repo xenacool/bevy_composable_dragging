@@ -500,10 +500,8 @@ fn spawn_banner_camera(mut commands: Commands) {
 
 /// Run this example. Called by the WASM runner.
 pub fn run(app: &mut App) {
-    app
-let mut app = App::new();
     app.add_plugins(common::default_plugins("cozy_castle"));
-    castle(&mut app)
+    castle(app)
         .add_systems(Startup, spawn_banner_camera)
         .add_plugins(TourPlugin::new(tour))
         .add_plugins(

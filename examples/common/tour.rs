@@ -127,6 +127,10 @@ impl TourPlugin {
 
 impl Plugin for TourPlugin {
     fn build(&self, app: &mut App) {
+        // No-op on WASM — tours are only for headless screenshot captures
+        if cfg!(target_arch = "wasm32") {
+            return;
+        }
         if std::env::var("DSD_SCREENSHOT").is_err() {
             return;
         }

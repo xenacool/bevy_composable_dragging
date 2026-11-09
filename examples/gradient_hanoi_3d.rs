@@ -121,11 +121,10 @@ fn view(hanoi: &Hanoi) -> View<Hanoi> {
 
 /// Run this example. Called by the WASM runner.
 pub fn run(app: &mut App) {
-    app
-let hanoi = Hanoi {
+    let hanoi = Hanoi {
         pegs: [(0..DISKS).rev().collect(), Vec::new(), Vec::new()],
     };
-    App::new()
+    app
         .add_plugins(common::default_plugins("gradient_hanoi_3d"))
         .add_plugins(DraggablePlugin::new(hanoi, view))
         .add_plugins(ScriptedDragPlugin::straight(

@@ -125,10 +125,8 @@ fn editor(app: &mut App) -> &mut App {
 
 /// Run this example. Called by the WASM runner.
 pub fn run(app: &mut App) {
-    app
-let mut app = App::new();
     app.add_plugins(common::default_plugins("kart racer editor"));
-    editor(&mut app)
+    editor(app)
         .add_plugins(TourPlugin::new(tour::tour))
         .add_plugins(
             AutoScreenshotPlugin::new("screenshot_kart_racer_editor.webp")
