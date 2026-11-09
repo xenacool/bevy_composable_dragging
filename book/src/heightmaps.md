@@ -92,8 +92,6 @@ ViewNode::sphere("brush", 0.3)
     )
 ```
 
-![Kart Racer Editor](screenshots/screenshot_kart_racer_editor.webp)
-
 *Raising hills with a heightmap, picked from a radial menu. Run `cargo run --example kart_racer_editor --features shapes-3d`.*
 
 ## Next Steps

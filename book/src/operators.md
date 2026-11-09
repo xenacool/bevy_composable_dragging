@@ -33,8 +33,6 @@ between_with([a, b, c, d], BetweenOptions::new()
     .with_interpolation(Interpolation::NaturalNeighbor)
 )
 
-![Three-way toggle](screenshots/screenshot_three_way.webp)
-
 *Three states arranged in a triangle. Run `cargo run --example three_way --features pbr`.*
 
 ## `closest` — Pick the Nearest State
@@ -51,8 +49,6 @@ ViewNode::circle("item", 0.3)
         s
     })))
 ```
-
-![Reorder list](screenshots/screenshot_reorder_list.webp)
 
 *Drag items to reorder a list. Run `cargo run --example reorder_list --features pbr`.*
 
@@ -80,8 +76,6 @@ vary_constrained(
     constraint::in_range(param!(Slider, value), 0.0, 10.0),
 )
 ```
-
-![Slider](screenshots/screenshot_slider.webp)
 
 *A continuous slider. Run `cargo run --example slider --features pbr`.*
 

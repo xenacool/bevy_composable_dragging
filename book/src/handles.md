@@ -83,8 +83,6 @@ Each handle takes a closure that receives the original state, the point index, a
 
 `CurveHandles::footprint(index)` returns the 2D bounds of the handles for a specific control point, useful for HUD layout to avoid overlapping elements.
 
-![Kart Racer Editor](screenshots/screenshot_kart_racer_editor.webp)
-
 *Curve handles editing a race track. Run `cargo run --example kart_racer_editor --features shapes-3d`.*
 
 ## Next Steps

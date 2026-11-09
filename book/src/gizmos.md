@@ -118,8 +118,6 @@ fn setup(mut commands: Commands) {
 
 `Gizmo::footprint` returns the world positions of all handle centers, useful for HUD layout to keep elements clear of the gizmo.
 
-![Gizmo 3D](screenshots/screenshot_gizmo_3d.webp)
-
 *Translate, rotate, and scale gizmo handles on a 3D object. Run `cargo run --example gizmo_3d --features shapes-3d`.*
 
 ## Next Steps

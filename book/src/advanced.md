@@ -154,22 +154,27 @@ The test cases of Dragology's `closest.test.tsx`, `userOps.test.tsx`, `math/dela
 
 ## Gallery
 
-| | | |
-|---|---|---|
-| ![toggle](screenshots/screenshot_toggle.webp) | ![three_way](screenshots/screenshot_three_way.webp) | ![reorder_list](screenshots/screenshot_reorder_list.webp) |
-| `toggle`: `between` | `three_way`: `between` over three states | `reorder_list`: `closest` + floating |
-| ![ring_of_beads](screenshots/screenshot_ring_of_beads.webp) | ![slider](screenshots/screenshot_slider.webp) | ![clock](screenshots/screenshot_clock.webp) |
-| `ring_of_beads`: `closest` on a ring | `slider`: `vary` with a range constraint | `clock`: `vary` one angle |
-| ![scheduler](screenshots/screenshot_scheduler.webp) | ![lists_in_lists](screenshots/screenshot_lists_in_lists.webp) | ![tessellations](screenshots/screenshot_tessellations.webp) |
-| `scheduler`: `closest` + `vary` | `lists_in_lists`: rows nested to any depth, `when_far` snap-or-free, `with_overlay` insertion marker | `tessellations`: toolbar and trash bin |
-| ![gradient_hanoi_3d](screenshots/screenshot_gradient_hanoi_3d.webp) | ![gradient_kanban_2d](screenshots/screenshot_gradient_kanban_2d.webp) | ![hello](screenshots/screenshot_hello.webp) |
-| `gradient_hanoi_3d`: `shapes-3d` | `gradient_kanban_2d`: `shapes-2d` | `hello`: minimal `state` example |
-| ![chain_of_cells](screenshots/screenshot_chain_of_cells.webp) | ![blend_square](screenshots/screenshot_blend_square.webp) | ![tactile_tessellations](screenshots/screenshot_tactile_tessellations.webp) |
-| `chain_of_cells`: `with_chaining`, overlay underline, drop transition | `blend_square`: `between_with` natural neighbor and sharpness | `tactile_tessellations`: edge-to-edge snaps with rotation |
-| ![gizmo_3d](screenshots/screenshot_gizmo_3d.webp) | ![physics_lab](screenshots/screenshot_physics_lab.webp) | ![cozy_castle](screenshots/screenshot_cozy_castle.webp) |
-| `gizmo_3d`: translate, rotate and scale gizmos in 3D drag spaces | `physics_lab`: 3D physics shapes dragged onto a grid, simulated with avian | `cozy_castle`: radial menu, stacking rooms speculatively, an arch carved into a swept wall |
-| ![kart_racer_editor](screenshots/screenshot_kart_racer_editor.webp) | | |
-| `kart_racer_editor`: a pulled curve, a scaled sweep road, hills and a radial menu | | |
+| Example | Description |
+|---|---|
+| `toggle` | `between` |
+| `three_way` | `between` over three states |
+| `reorder_list` | `closest` + floating |
+| `ring_of_beads` | `closest` on a ring |
+| `slider` | `vary` with a range constraint |
+| `clock` | `vary` one angle |
+| `scheduler` | `closest` + `vary` |
+| `lists_in_lists` | rows nested to any depth, `when_far` snap-or-free, `with_overlay` insertion marker |
+| `tessellations` | toolbar and trash bin |
+| `gradient_hanoi_3d` | `shapes-3d` |
+| `gradient_kanban_2d` | `shapes-2d` |
+| `hello` | minimal `state` example |
+| `chain_of_cells` | `with_chaining`, overlay underline, drop transition |
+| `blend_square` | `between_with` natural neighbor and sharpness |
+| `tactile_tessellations` | edge-to-edge snaps with rotation |
+| `gizmo_3d` | translate, rotate and scale gizmos in 3D drag spaces |
+| `physics_lab` | 3D physics shapes dragged onto a grid, simulated with avian |
+| `cozy_castle` | radial menu, stacking rooms speculatively, an arch carved into a swept wall |
+| `kart_racer_editor` | a pulled curve, a scaled sweep road, hills and a radial menu |
 
 `tessellations` snaps tiles to a grid and shows a toolbar and chaining, while `tactile_tessellations` is a port of Dragology's demo of the same name: regular polygons that snap edge to edge with rotation, `closest` with `when_far`, a palette and a trash bin.
 

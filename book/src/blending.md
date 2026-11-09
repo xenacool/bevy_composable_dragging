@@ -71,8 +71,6 @@ The HUD uses 12% overshoot for all its elements.
 
 When two views use different geometries for the same node, the engine morphs between them. With `bevy_gradmesh`, shapes are quantized to 32 morph steps, bounding the number of distinct meshes.
 
-![Blend square](screenshots/screenshot_blend_square.webp)
-
 *Natural neighbor blending across four control points. Run `cargo run --example blend_square --features pbr`.*
 
 ## Next Steps
