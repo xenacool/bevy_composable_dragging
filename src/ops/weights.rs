@@ -16,7 +16,7 @@ pub(crate) type Triangle = [usize; 3];
 /// Tolerance for treating a point as inside a triangle or on the boundary of the box.
 const EPSILON: f64 = 1e-9;
 
-/// Delaunay triangulation of `points` by incremental insertion (Bowyer–Watson).
+/// Delaunay triangulation of `points` by incremental insertion (Bowyer-Watson).
 ///
 /// Returns no triangles for fewer than three points or when all points are collinear. The
 /// triangulation is built once, so every pointer position is located in the same triangles.

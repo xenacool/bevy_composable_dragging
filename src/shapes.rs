@@ -83,24 +83,6 @@ fn flat_material(color: LinearRgba) -> StandardMaterial {
 #[cfg(feature = "gradmesh")]
 const ALPHA_STEPS: f32 = 16.0;
 
-/// The number of pooled gradient materials above which the pool lets go of the ones that
-/// nothing draws any more. Each fade step of each style is a material of its own, and the pool
-/// holds on to every one of them, so without this a session only ever adds to the total.
-#[cfg(feature = "gradmesh")]
-pub(crate) const POOL_LIMIT: usize = 32;
-
-/// Makes the material pool forget its materials once it holds more than [`POOL_LIMIT`].
-///
-/// Entities keep the handle of the material they are drawn with, so only materials that nothing
-/// uses are freed. Styles that are still in use are pooled again the next time a node asks for
-/// them.
-#[cfg(feature = "gradmesh")]
-pub(crate) fn release_unused_materials(mut pool: ResMut<GradMeshMaterialPool>) {
-    if pool.len() > POOL_LIMIT {
-        pool.clear();
-    }
-}
-
 /// The gradient of nodes without a style of their own: their color on top and a darker shade
 /// below. Blending their colors therefore blends their gradients too.
 #[cfg(feature = "gradmesh")]

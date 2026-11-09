@@ -7,18 +7,23 @@
 //! despawns everything marked `Kart`, `KartCamera` or `HudPart` to stop, as the editor does for a
 //! test drive.
 
+use avian3d::prelude::{Gravity, PhysicsPlugins};
 use bevy::prelude::*;
 use bevy_gradmesh::{GradMeshMaterial, SdfMaterial2d};
 
 use crate::ground::Ground;
 use crate::hud;
-use crate::kart::{Kart, KartState, drive_kart, follow_camera, update_kart_transform};
+use crate::kart::{
+    GRAVITY, Kart, KartState, PutKart, drive_kart, follow_camera, place_kart, read_kart,
+};
 use crate::race::{
     Checkpoint, Checkpoints, Race, animate_coins, check_checkpoints, collect_coins,
     put_back_after_fall, put_back_before_missed,
 };
 use crate::track::{BakedTrack, TrackDesign};
-use crate::world::{TrackEntity, spawn_driver, spawn_environment, spawn_track, sync_ground};
+use crate::world::{
+    TrackEntity, spawn_driver, spawn_environment, spawn_track, sync_ground, sync_surface_colliders,
+};
 
 /// Builds the light, the ground and the track from the `TrackDesign` resource.
 ///
@@ -33,6 +38,7 @@ pub struct TrackWorldPlugin;
 impl Plugin for TrackWorldPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<KartState>()
+            .add_message::<PutKart>()
             .init_resource::<Race>()
             .init_resource::<Checkpoints>()
             .add_systems(Startup, setup_environment)
@@ -49,32 +55,39 @@ impl Plugin for TrackWorldPlugin {
 
 /// Runs the kart, the race and the HUD on the track of [`TrackWorldPlugin`], while a kart exists
 /// and the track is built.
+///
+/// Avian carries the kart: while one exists, the road and the ground are given colliders from
+/// their meshes, and the kart rests on them.
 pub struct DrivingPlugin;
 
 impl Plugin for DrivingPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(
-            Update,
-            (
-                drive_kart,
-                put_back_after_fall,
-                update_kart_transform,
-                follow_camera,
-                hud::follow_hud_camera,
-                hud::update_speed_bar,
-                collect_coins,
-                check_checkpoints,
-                put_back_before_missed,
-                hud::update_hud_text,
-                hud::update_missed_dial,
-                animate_coins,
-            )
-                .chain()
-                .after(rebuild_track)
-                .run_if(resource_exists::<BakedTrack>)
-                .run_if(resource_exists::<Ground>)
-                .run_if(any_with_component::<Kart>),
-        );
+        app.add_plugins(PhysicsPlugins::default())
+            .insert_resource(Gravity(Vec3::NEG_Y * GRAVITY))
+            .add_systems(Update, sync_surface_colliders)
+            .add_systems(
+                Update,
+                (
+                    read_kart,
+                    drive_kart,
+                    collect_coins,
+                    check_checkpoints,
+                    put_back_after_fall,
+                    put_back_before_missed,
+                    place_kart,
+                    follow_camera,
+                    hud::follow_hud_camera,
+                    hud::update_speed_bar,
+                    hud::update_hud_text,
+                    hud::update_missed_dial,
+                    animate_coins,
+                )
+                    .chain()
+                    .after(rebuild_track)
+                    .run_if(resource_exists::<BakedTrack>)
+                    .run_if(resource_exists::<Ground>)
+                    .run_if(any_with_component::<Kart>),
+            );
     }
 }
 
@@ -103,6 +116,7 @@ pub fn rebuild_track(
     mut materials: ResMut<Assets<GradMeshMaterial>>,
     mut kart: ResMut<KartState>,
     mut race: ResMut<Race>,
+    mut puts: MessageWriter<PutKart>,
 ) {
     if design.control_points.is_empty() {
         return;
@@ -116,6 +130,7 @@ pub fn rebuild_track(
     }
     let baked = design.bake();
     *kart = KartState::at_start(&baked);
+    puts.write(PutKart(*kart));
     *race = Race::default();
     commands.insert_resource(Checkpoints(
         design

@@ -108,7 +108,7 @@ mod tests {
             tile: 0.0,
         })
         .get("tool")
-        .and_then(|node| node.drag.clone())
+        .and_then(|node| node.drag.as_ref())
         .map(|factory| factory())
         .unwrap()
     }

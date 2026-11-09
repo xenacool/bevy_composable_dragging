@@ -5,6 +5,11 @@
 //! The engine renders the target states speculatively, finds the dragged node by id, and
 //! synthesizes the preview while dragging and the drop state on release.
 
+#![expect(
+    clippy::disallowed_types,
+    reason = "views, drag specs and edits share their closures through `Arc`; the guidelines ban shared ownership, and this expectation warns once the last `Arc` of the crate is gone"
+)]
+
 mod behavior;
 mod blend;
 pub mod constraint;

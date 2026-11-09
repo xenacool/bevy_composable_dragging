@@ -6,7 +6,6 @@
 
 use std::borrow::Cow;
 use std::collections::HashMap;
-use std::sync::Arc;
 
 use bevy::color::LinearRgba;
 use bevy::math::{Mat4, Quat, Vec2, Vec3};
@@ -26,7 +25,7 @@ use crate::spec::DragSpec;
 
 /// The render layer for gizmo handles. They sit on this layer so they are always picked first,
 /// even when scene geometry covers them. A camera that shows the scene should also show this
-/// layer, which [`DraggablePlugin`](crate::DraggablePlugin) does by default.
+/// layer, which the plugin does by default.
 pub const GIZMO_LAYER: usize = 31;
 
 /// The radius of the sphere that stands in for a group, which is never seen.
@@ -38,10 +37,12 @@ pub type NodeId = Cow<'static, str>;
 
 /// Lazily builds the [`DragSpec`] of a node, so specs are only constructed for the node being
 /// dragged and not for every node of every speculative view.
-pub type DragFactory<S> = Arc<dyn Fn() -> DragSpec<S> + Send + Sync>;
+pub type DragFactory<S> = Box<dyn Fn() -> DragSpec<S> + Send + Sync>;
 
 /// A single element of a [`View`].
-#[derive(Clone)]
+///
+/// A clone has everything but the drag factory, which has one owner: a drag starts from the view
+/// a state renders, never from a copy of it.
 pub struct ViewNode<S> {
     /// Identifies this node across views.
     pub id: NodeId,
@@ -85,6 +86,12 @@ pub struct ViewNode<S> {
     /// The space a drag of this node happens in. `None` uses the default space of the scene
     /// (see `DragPlane`).
     pub drag_space: Option<DragSpace>,
+}
+
+impl<S> Clone for ViewNode<S> {
+    fn clone(&self) -> Self {
+        self.rebind()
+    }
 }
 
 impl<S> ViewNode<S> {
@@ -362,7 +369,7 @@ impl<S> ViewNode<S> {
     /// Makes the node draggable. `spec` is only called when a drag on this node starts.
     #[must_use]
     pub fn draggable(mut self, spec: impl Fn() -> DragSpec<S> + Send + Sync + 'static) -> Self {
-        self.drag = Some(Arc::new(spec));
+        self.drag = Some(Box::new(spec));
         self
     }
 
@@ -557,6 +564,10 @@ impl<S> View<S> {
                 continue;
             };
             // Gizmo layer always wins over a non-gizmo hit at the same distance.
+            #[allow(
+                clippy::float_cmp,
+                reason = "hits at exactly the same distance are the tie that is being broken"
+            )]
             let wins = if node.layer == GIZMO_LAYER {
                 best.as_ref().is_none_or(|hit| {
                     hit.distance < distance

@@ -13,8 +13,6 @@ use crate::model::DragModel;
 use crate::render::{NodeEntities, sync_nodes};
 use crate::rendering::Rendering;
 use crate::shapes::ShapeMeshes;
-#[cfg(feature = "gradmesh")]
-use crate::shapes::release_unused_materials;
 use crate::transition::advance_transitions;
 use crate::view::View;
 
@@ -114,7 +112,5 @@ impl<S: Clone + Send + Sync + 'static> Plugin for DraggablePlugin<S> {
             .add_observer(on_drag::<S>)
             .add_observer(on_drag_end::<S>)
             .add_systems(Update, (advance_transitions::<S>, sync_nodes::<S>).chain());
-        #[cfg(feature = "gradmesh")]
-        app.add_systems(Update, release_unused_materials.after(sync_nodes::<S>));
     }
 }

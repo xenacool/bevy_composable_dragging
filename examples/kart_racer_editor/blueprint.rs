@@ -132,7 +132,7 @@ fn curve(points: &[Vec3]) -> Vec<Vec3> {
     if count < 3 {
         return points.to_vec();
     }
-    let spline = CatmullRomSpline::closed(points.to_vec());
+    let spline = CatmullRomSpline::closed(points.to_vec()).expect("there are three points");
     let total = count * SAMPLES;
     (0..total)
         .map(|i| spline.point(i as f32 / total as f32))

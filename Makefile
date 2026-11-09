@@ -1,7 +1,7 @@
-EXAMPLES = hello toggle three_way reorder_list ring_of_beads slider clock scheduler lists_in_lists tessellations chain_of_cells blend_square tactile_tessellations gizmo_3d gradient_hanoi_3d gradient_kanban_2d cozy_castle kart_racer_editor
+EXAMPLES = hello toggle three_way reorder_list ring_of_beads slider clock scheduler lists_in_lists tessellations chain_of_cells blend_square tactile_tessellations gizmo_3d gradient_hanoi_3d gradient_kanban_2d cozy_castle kart_racer_editor physics_lab
 
 # Examples that produce animated WebP (all except hello, which is a still WebP)
-ANIMATIONS = toggle three_way reorder_list ring_of_beads slider clock scheduler lists_in_lists tessellations chain_of_cells blend_square tactile_tessellations gizmo_3d gradient_hanoi_3d gradient_kanban_2d
+ANIMATIONS = toggle three_way reorder_list ring_of_beads slider clock scheduler lists_in_lists tessellations chain_of_cells blend_square tactile_tessellations gizmo_3d gradient_hanoi_3d gradient_kanban_2d physics_lab
 
 .PHONY: $(EXAMPLES) all-examples screenshots clean
 
@@ -61,6 +61,9 @@ cozy_castle:
 
 kart_racer_editor:
 	cargo run --example kart_racer_editor --features shapes-3d
+
+physics_lab:
+	cargo run --example physics_lab --features shapes-3d
 
 ANIMATIONS_WEBP = $(patsubst %,screenshot_%.webp,$(ANIMATIONS))
 
@@ -161,6 +164,8 @@ screenshots:
 	$(call capture_screenshot,cozy_castle,shapes-3d)
 	@echo ""
 	$(call capture_screenshot,kart_racer_editor,shapes-3d)
+	@echo ""
+	$(call capture_animation,physics_lab,shapes-3d)
 	@echo ""
 	@echo "=== Screenshots saved to screenshots/ ==="
 	@ls -la screenshots/

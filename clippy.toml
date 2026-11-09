@@ -1,0 +1,22 @@
+
+
+disallowed-types = [
+    { path = "std::sync::Arc", reason = "no shared ownership: keep the value in one place, as a resource, a component, an asset behind a `Handle` or an `Entity` reference" },
+    { path = "std::rc::Rc", reason = "no shared ownership: keep the value in one place, as a resource, a component, an asset behind a `Handle` or an `Entity` reference" },
+    { path = "std::cell::RefCell", reason = "no interior mutability: mutate through `&mut` and Bevy's system parameters" },
+    { path = "std::cell::Cell", reason = "no interior mutability: mutate through `&mut` and Bevy's system parameters" },
+    { path = "std::sync::Mutex", reason = "no locks: share data through Bevy's resources and messages" },
+    { path = "std::sync::RwLock", reason = "no locks: share data through Bevy's resources and messages" },
+    { path = "std::sync::LazyLock", reason = "no global state: build the value in a system or a plugin and keep it in a resource" },
+    { path = "std::sync::OnceLock", reason = "no global state: build the value in a system or a plugin and keep it in a resource" },
+    { path = "std::cell::LazyCell", reason = "no global state: build the value in a system or a plugin and keep it in a resource" },
+    { path = "std::cell::OnceCell", reason = "no global state: build the value in a system or a plugin and keep it in a resource" },
+]
+
+disallowed-macros = [
+    { path = "std::thread_local", reason = "no global state: keep per-thread data in a `Local` or a resource" },
+]
+
+disallowed-methods = [
+    { path = "std::boxed::Box::leak", reason = "no leaks to get a `'static` value: own it in a resource or an asset" },
+]

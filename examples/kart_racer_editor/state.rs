@@ -421,7 +421,9 @@ impl Editor {
         self.design.control_points[index].position + Vec3::Y * self.handle_radius()
     }
 
-    /// This editor with `design` as the track. A selection that is no longer there is dropped.
+    /// This editor with `design` as the track. A selection that is no longer there is dropped,
+    /// and the land grows to reach [`LAND_REACH`] times as far as the map of the track does, so a
+    /// track that is pulled out over the grid always has land under it.
     #[must_use]
     pub fn with_design(&self, design: TrackDesign) -> Self {
         if design == self.design {
@@ -429,9 +431,11 @@ impl Editor {
         }
         let count = design.control_points.len();
         let report = Report::of(&design);
+        let (middle, half) = space_of(&framing_points(&design));
+        let land = self.ground.grown_to(middle.xz(), half * LAND_REACH);
         Self {
             selected: self.selected.filter(|index| *index < count),
-            ground: report.cut(&self.ground),
+            ground: report.cut(&land),
             report: Arc::new(report),
             design,
             ..self.clone()
@@ -800,6 +804,36 @@ mod tests {
         let empty = Editor::initial();
         assert!(empty.ground.half() > 0.0);
         assert!(empty.ground.contains(Vec2::ZERO));
+    }
+
+    #[test]
+    fn the_land_grows_with_a_track_that_is_pulled_out_and_keeps_its_hills() {
+        let editor = raised_road(30.0).with_tool(Tool::Hills);
+        let hill = editor.ground.middle() + Vec2::new(300.0, -200.0);
+        let hilly = editor.sculpted(hill, 6.0);
+        let reach = hilly.ground.half();
+        let out = Vec3::new(reach * 0.9, 30.0, 0.0);
+        let pulled = hilly.moved(0, out);
+        assert!(pulled.ground.half() > reach, "the land grew");
+        let (middle, half) = pulled.space();
+        assert!(pulled.ground.half() >= half * LAND_REACH - 1e-3);
+        for point in &pulled.design.control_points {
+            assert!(pulled.ground.contains(point.position.xz()));
+        }
+        assert!(middle.xz().distance(pulled.ground.middle()) < pulled.ground.half());
+        assert!(
+            pulled.ground.surface(hill) > BASE + 3.0,
+            "the hill is still there: {}",
+            pulled.ground.surface(hill)
+        );
+        let (square, side) = pulled.terrain_square();
+        assert!(side >= pulled.ground.half() - 1e-3 || square != pulled.ground.middle());
+        let nudged = pulled.moved(0, Vec3::X);
+        assert_eq!(
+            nudged.ground.half(),
+            pulled.ground.half(),
+            "a small step does not grow the land again"
+        );
     }
 
     #[test]

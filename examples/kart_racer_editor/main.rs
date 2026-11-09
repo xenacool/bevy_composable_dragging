@@ -43,6 +43,11 @@
 //!
 //! Run with `cargo run --example kart_racer_editor --features shapes-3d`.
 
+#![expect(
+    clippy::disallowed_types,
+    reason = "the views and the drags of the library are shared through `Arc`; the guidelines ban shared ownership, and this expectation warns once the last `Arc` of the example is gone"
+)]
+
 use bevy::camera::visibility::RenderLayers;
 use bevy::prelude::*;
 use bevy_composable_dragging::gizmo::GIZMO_LAYER;
@@ -274,6 +279,8 @@ mod tests {
             )))
             .insert_resource(DragModel::new(editor, view))
             .add_plugins(EditorPlugin);
+        app.finish();
+        app.cleanup();
         app.world_mut().spawn((EditorCamera, Camera::default()));
         app.update();
         app
@@ -541,12 +548,14 @@ mod tests {
             let mut race = app.world_mut().resource_mut::<Race>();
             race.started = true;
             race.next = 1;
+            // The kart is put down, not driven, so the way it drove is measured from here.
+            race.last = None;
         }
         let missed = KartState {
             coins: 2,
             ..KartState::at_distance(&track, gate.distance + 25.0)
         };
-        *app.world_mut().resource_mut::<KartState>() = missed;
+        kart::put(&mut app, missed);
 
         let dial = |app: &mut App| {
             let world = app.world_mut();
@@ -580,7 +589,7 @@ mod tests {
         assert!(shown[0] <= race::MISSED_COUNTDOWN && shown[0] > race::MISSED_COUNTDOWN - 0.1);
 
         let state = *app.world().resource::<KartState>();
-        assert_eq!(state.speed, 0.0, "standing");
+        assert!(state.speed.abs() < 0.1, "standing: {}", state.speed);
         assert_eq!(state.coins, 2, "the coins stay");
         let before = gate.distance - kart::KART_WIDTH;
         assert!(
@@ -616,10 +625,13 @@ mod tests {
             .0
             .get(passed.wrapping_sub(1))
             .map_or(0.0, |gate| gate.distance);
-        *app.world_mut().resource_mut::<KartState>() = KartState {
-            position: Vec3::new(spot.x, ground::BASE + 0.5, spot.y),
-            ..KartState::default()
-        };
+        kart::put(
+            &mut app,
+            KartState {
+                position: Vec3::new(spot.x, ground::BASE + 0.5, spot.y),
+                ..KartState::default()
+            },
+        );
         let mut fell = false;
         for _ in 0..4000 {
             app.update();
@@ -645,7 +657,7 @@ mod tests {
                 state.position,
                 frame.position
             );
-            assert_eq!(state.speed, 0.0, "{passed}");
+            assert!(state.speed.abs() < 0.1, "{passed}: {}", state.speed);
             assert!(!state.falling(), "{passed}");
         }
     }

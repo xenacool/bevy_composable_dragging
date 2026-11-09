@@ -1,10 +1,8 @@
 //! A curve through control points in 3D, the authored form of a wall.
 //!
-//! `bevy_gradmesh` has a closed Catmull-Rom loop, so an open curve is baked as the loop that
-//! goes out along the control points and comes back the same way. Its first half is the open
-//! curve, and a distance along the open curve is a distance along that half. Frames are not
-//! used: tangents come from probing the curve, which also holds at the turning points of the
-//! loop.
+//! The control points go to `bevy_gradmesh` as an open or a closed Catmull-Rom spline, which is
+//! baked into frames evenly spaced by arc length. An open curve has a frame on its last point,
+//! and a loop wraps around.
 
 use bevy::prelude::*;
 use bevy_gradmesh::{BakedSpline, CatmullRomSpline};
@@ -13,15 +11,17 @@ use bevy_gradmesh::{BakedSpline, CatmullRomSpline};
 /// follows the size of the curve, so a small curve is as smooth as a big one.
 const FRAMES_PER_SEGMENT: f32 = 64.0;
 
-/// The spacing of the baked frames of a loop through `points`.
-fn frame_step(points: &[Vec3]) -> f32 {
+/// The spacing of the baked frames of a curve through `points`, with `segments` stretches
+/// between them.
+fn frame_step(points: &[Vec3], segments: usize) -> f32 {
     let length: f32 = points
         .iter()
         .zip(points.iter().cycle().skip(1))
+        .take(segments)
         .map(|(from, to)| from.distance(*to))
         .sum();
     if length > 0.0 {
-        length / (points.len() as f32 * FRAMES_PER_SEGMENT)
+        length / (segments as f32 * FRAMES_PER_SEGMENT)
     } else {
         1.0
     }
@@ -75,10 +75,7 @@ impl Curve {
     /// The point of the curve halfway, in the curve parameter, between the control points of
     /// `segment`.
     pub fn segment_middle(&self, segment: usize) -> Vec3 {
-        if !self.is_loop() && self.points.len() == 2 {
-            return self.points[0].midpoint(self.points[1]);
-        }
-        let spline = CatmullRomSpline::closed(self.loop_points(Vec3::ONE));
+        let spline = self.spline(Vec3::ONE);
         spline.point((segment as f32 + 0.5) / spline.segment_count() as f32)
     }
 
@@ -98,79 +95,43 @@ impl Curve {
         curve
     }
 
-    /// The control points of the loop that is baked: for an open curve, out and back again.
-    fn loop_points(&self, scale: Vec3) -> Vec<Vec3> {
+    /// The spline through the control points, scaled about the origin by `scale`.
+    fn spline(&self, scale: Vec3) -> CatmullRomSpline {
         let points: Vec<Vec3> = self.points.iter().map(|point| *point * scale).collect();
-        if self.is_loop() {
-            return points;
-        }
-        assert!(points.len() >= 2, "a curve needs at least two points");
-        if points.len() == 2 {
-            let middle = points[0].midpoint(points[1]);
-            return vec![points[0], middle, points[1], middle];
-        }
-        let back = points[1..points.len() - 1].iter().rev().copied();
-        points.iter().copied().chain(back).collect()
+        let spline = if self.is_loop() {
+            CatmullRomSpline::closed(points)
+        } else {
+            CatmullRomSpline::open(points)
+        };
+        spline.expect("a curve has two points, and a loop three")
     }
 
     /// The curve baked for sampling, with its control points scaled about the origin by `scale`.
     pub fn baked(&self, scale: Vec3) -> Baked {
-        let points = self.loop_points(scale);
-        let step = frame_step(&points);
-        let looped = self.is_loop();
-        let mut spline = CatmullRomSpline::closed(points.clone()).bake(step);
-        if !looped {
-            // The end of an open curve is the turning point of the loop, which a sample between
-            // two frames would cut across, so the frames are spaced to put one right on it.
-            let half = spline.length() / 2.0;
-            let fitted = half / (half / step).ceil().max(1.0);
-            spline = CatmullRomSpline::closed(points).bake(fitted);
-        }
-        let length = if looped {
-            spline.length()
-        } else {
-            spline.length() / 2.0
-        };
-        Baked {
-            spline,
-            length,
-            looped,
-            probe: step / 2.0,
-        }
+        let points: Vec<Vec3> = self.points.iter().map(|point| *point * scale).collect();
+        let step = frame_step(&points, self.segments());
+        Baked(self.spline(scale).bake(step))
     }
 }
 
 /// A curve baked for sampling by arc length.
-pub struct Baked {
-    spline: BakedSpline,
-    length: f32,
-    looped: bool,
-    /// How far either side of a distance the curve is probed for its tangent: half the spacing
-    /// of the frames, the finest the baked curve tells apart.
-    probe: f32,
-}
+pub struct Baked(BakedSpline);
 
 impl Baked {
     /// The length of the curve.
     pub fn length(&self) -> f32 {
-        self.length
+        self.0.length()
     }
 
     /// The position `distance` along the curve. An open curve ends where it ends and a loop
     /// wraps around.
     pub fn position(&self, distance: f32) -> Vec3 {
-        let distance = if self.looped {
-            distance
-        } else {
-            distance.clamp(0.0, self.length)
-        };
-        self.spline.sample_at_distance(distance).position
+        self.0.sample_at_distance(distance).position
     }
 
     /// The unit direction of the curve `distance` along it.
     pub fn tangent(&self, distance: f32) -> Vec3 {
-        (self.position(distance + self.probe) - self.position(distance - self.probe))
-            .normalize_or_zero()
+        self.0.sample_at_distance(distance).forward
     }
 }
 
@@ -384,9 +345,11 @@ mod tests {
     fn segments_and_midpoints_follow_the_control_points() {
         assert_eq!(bend().segments(), 3);
         assert_eq!(square().segments(), 4);
+        // The closing side runs from (-1, -1) to (-1, 1). The Catmull-Rom arms there are 1/3 long,
+        // so the middle of the segment, (b0 + 3 b1 + 3 b2 + b3) / 8, bulges out to x = -1.25.
         let middle = square().segment_middle(3);
         assert!(
-            middle.distance(Vec3::new(-1.5, 0.0, 0.0)) < 0.01,
+            middle.distance(Vec3::new(-1.25, 0.0, 0.0)) < 0.01,
             "{middle}"
         );
         assert_eq!(line(2.0).segment_middle(0), Vec3::X);

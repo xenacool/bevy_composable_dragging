@@ -1,12 +1,12 @@
 //! A small derivative-free constrained minimizer.
 //!
 //! Dragology minimizes with COBYLA. The only COBYLA crate for Rust does not declare a license, so
-//! this module implements Nelder–Mead with restarts instead. Constraints are handled by ranking:
+//! this module implements Nelder-Mead with restarts instead. Constraints are handled by ranking:
 //! a point that satisfies them always beats one that does not, and two infeasible points are
 //! ranked by how much they violate. A first stage that charges violations as a penalty lets the
 //! search move along curved constraints. Starting from a feasible point (the current drag state)
 //! the ranked search that follows never settles on an infeasible result. The drags this is used
-//! for have one or two parameters, where Nelder–Mead is fast and robust.
+//! for have one or two parameters, where Nelder-Mead is fast and robust.
 
 use std::cmp::Ordering;
 

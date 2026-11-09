@@ -1,11 +1,17 @@
-//! The kart: its state, the pure physics step, the input mapping and the systems that drive it.
+//! The kart: its state, the control it is given and the systems that drive it.
 //!
-//! Ported from the `bevy_gradmesh` kart racer example. The kart follows the height and the
-//! banking of the road while it is on it: it sits on the road surface under it, its up vector
-//! leans with the road, and it is off the road when it is further from the centerline than half
-//! the local road width. Off the road it drives on the [`Ground`], and where there is neither, over
-//! a hole, past the edge of the map or off a bridge, it falls under gravity.
+//! Ported from the `bevy_gradmesh` kart racer example, with avian carrying the kart: it is a
+//! dynamic body that rests on the road and the ground through the colliders of their meshes, so
+//! it follows their height and leans with the banking of the road without any rule of ours. All
+//! that is ours is the driver: [`drive`] sets the speed and the turning from the keys, and
+//! [`KartState`] mirrors the body for the race, the camera and the HUD. The kart is off the road
+//! when it is further from the centerline than half the local road width, and where there is
+//! neither road nor ground, over a hole, past the edge of the map or off a bridge, it falls.
 
+use avian3d::prelude::{
+    CoefficientCombine, Collider, Friction, LinearVelocity, LockedAxes, Restitution, RigidBody,
+    SleepingDisabled, SpatialQuery, SpatialQueryFilter, SweptCcd,
+};
 use bevy::prelude::*;
 
 use crate::ground::Ground;
@@ -22,7 +28,7 @@ pub const COIN_SPEED_GAIN: f32 = 0.02;
 pub const SPEED_COINS: u32 = 5;
 /// The fastest the kart drives backward.
 pub const MAX_REVERSE_SPEED: f32 = 24.0;
-/// The longest time step the systems simulate at once.
+/// The longest time step the driver simulates at once.
 pub const MAX_STEP: f32 = 0.033;
 /// How far along the road, either way, the kart looks for the part of the road it is on.
 const SEARCH_WINDOW: f32 = 15.0;
@@ -30,13 +36,21 @@ const SEARCH_WINDOW: f32 = 15.0;
 const OFF_ROAD_MARGIN: f32 = 10.0;
 /// How much further the kart then has to stray to be slowed down at full strength.
 const OFF_ROAD_RAMP: f32 = 8.0;
-/// The frame rate the per-frame constants of the physics are tuned for.
+/// The frame rate the per-frame constants of the driver are tuned for.
 const REFERENCE_RATE: f32 = 60.0;
 /// How much faster, each second, a kart that nothing holds up falls: well above the pull of
 /// the earth, so a kart that drives off an edge drops like a game's.
 pub const GRAVITY: f32 = 30.0;
+/// The radius of the ball that stands for the kart in the physics.
+const BALL: f32 = 0.5;
+/// How far the ball is lifted so the kart does not start inside the road it rests on.
+const BALL_LIFT: f32 = 0.02;
+/// How far under the kart the surface it leans with is looked for, beyond its own radius.
+const SURFACE_REACH: f32 = 1.5;
+/// How quickly, each second, the kart takes the lean of the surface under it.
+const LEAN_RATE: f32 = 12.0;
 
-/// Marks the kart model; the transform of the entity follows [`KartState`].
+/// Marks the kart model; the transform of the entity follows the physics body.
 #[derive(Component)]
 pub struct Kart;
 
@@ -44,14 +58,35 @@ pub struct Kart;
 #[derive(Component)]
 pub struct KartCamera;
 
-/// Where the kart is and how it moves.
+/// The physics of the kart: a ball that rolls over whatever it is over without turning, as the
+/// driver gives the kart its heading, its grip and its speed. Staying upright is the point: the
+/// lean of the kart is that of the surface under it, see [`read_kart`].
+pub fn body() -> impl Bundle {
+    (
+        RigidBody::Dynamic,
+        Collider::compound(vec![(
+            Vec3::Y * (BALL + BALL_LIFT),
+            Quat::IDENTITY,
+            Collider::sphere(BALL),
+        )]),
+        LockedAxes::ROTATION_LOCKED,
+        Friction::new(0.0)
+            .with_static_coefficient(1.0)
+            .with_combine_rule(CoefficientCombine::Min),
+        Restitution::ZERO.with_combine_rule(CoefficientCombine::Min),
+        SweptCcd::default(),
+        SleepingDisabled,
+    )
+}
+
+/// Where the kart is and how it moves, as the body of the kart has it.
 #[derive(Resource, Clone, Copy, Debug, PartialEq)]
 pub struct KartState {
     /// The kart on the road surface.
     pub position: Vec3,
     /// The direction the kart faces in plan, as an angle about `Y` from `+Z`.
     pub heading: f32,
-    /// The speed along the heading; negative when reversing.
+    /// The speed along the way the kart faces; negative when reversing.
     pub speed: f32,
     /// How many coins have been collected; the first [`SPEED_COINS`] raise the top speed.
     pub coins: u32,
@@ -59,7 +94,7 @@ pub struct KartState {
     pub distance: f32,
     /// How fast the kart rises; negative while it falls.
     pub climb: f32,
-    /// The normal of the surface the kart is on.
+    /// The way the kart faces up, which is the normal of the surface it rests on.
     pub up: Vec3,
     /// How far the kart is to the right of the road centerline; negative on the left.
     pub lateral: f32,
@@ -126,11 +161,17 @@ impl KartState {
         self.lateral.abs() > self.half_width
     }
 
-    /// Whether nothing holds the kart up and it is falling.
+    /// Whether nothing holds the kart up and it is falling: it drops faster than any road the kart
+    /// can drive down would take it, plus the bumps of the way.
     pub fn falling(&self) -> bool {
-        self.climb < 0.0
+        self.climb < -(self.speed.abs() * MAX_GRADE + KART_WIDTH)
     }
 }
+
+/// A kart to put down, standing, wherever its state says: the way to move the kart, as the body
+/// is what holds its place.
+#[derive(Message, Clone, Copy, Debug)]
+pub struct PutKart(pub KartState);
 
 /// The height below which a kart has fallen out of the world: the abyss of the ground, or a
 /// relief of the ground below the lowest point of the road when that is lower.
@@ -180,143 +221,66 @@ impl KartInput {
     }
 }
 
-/// Advances the kart by `dt` seconds on `track` and `ground`.
+/// How the kart moves: the velocity of its body and the way it faces in plan.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Motion {
+    /// The linear velocity.
+    pub velocity: Vec3,
+    /// The direction the kart faces in plan, as an angle about `Y` from `+Z`.
+    pub heading: f32,
+}
+
+/// How far the kart has strayed beyond the road and its margin, from `0.0` on or near the road
+/// to `1.0` far from it, which is how strongly the land slows it down.
+pub fn strayed(state: &KartState) -> f32 {
+    let reach = state.half_width + OFF_ROAD_MARGIN;
+    ((state.lateral.abs() - reach).max(0.0) / OFF_ROAD_RAMP).min(1.0)
+}
+
+/// What the driver makes of the `motion` of a kart that rests on a surface leaning as `up` does,
+/// over `dt` seconds.
 ///
-/// The kart accelerates, steers less the faster it goes and drives along its heading. It is then
-/// held by the highest thing under it that it is over: the road, while it is between the road
-/// edges at about the height of the road, and the ground, unless there is a hole or the map ends
-/// there. When nothing holds it, it falls, and it lands on whatever it falls onto. Beyond the
-/// road edge and a margin it slows down.
-pub fn step(
-    state: KartState,
+/// The kart turns, less the faster it goes, accelerates along the surface the way it faces, as
+/// much as its `coins` allow, and loses all the speed it has sideways to its tyres. Beyond the
+/// road edge and a margin, `strayed` slows it down. Gravity and the road are not here: the physics
+/// gives them, and `up` is what the physics found under the kart.
+pub fn drive(
+    motion: Motion,
+    up: Vec3,
     input: KartInput,
+    coins: u32,
+    strayed: f32,
     dt: f32,
-    track: &BakedTrack,
-    ground: &Ground,
-) -> KartState {
+) -> Motion {
     let frames = dt * REFERENCE_RATE;
-    let mut next = state;
+    let along_before = motion.velocity.dot(level_forward(motion.heading, up));
+    let speed_factor = (along_before.abs() / 20.0).min(1.0);
+    let heading = motion.heading + input.steer * 2.5 * dt * (0.3 + 0.7 * (1.0 - speed_factor));
 
-    let speed_factor = (state.speed.abs() / 20.0).min(1.0);
-    next.heading += input.steer * 2.5 * dt * (0.3 + 0.7 * (1.0 - speed_factor));
-
+    let forward = level_forward(heading, up);
+    let side = up.cross(forward);
+    let along = motion.velocity.dot(forward);
+    let mut speed = along;
     if input.throttle > 0.0 {
-        next.speed += input.throttle * 50.0 * dt;
+        speed += input.throttle * 50.0 * dt;
     } else if input.throttle < 0.0 {
-        next.speed += input.throttle * 60.0 * dt;
+        speed += input.throttle * 60.0 * dt;
     }
     let drag: f32 = if input.throttle > 0.0 { 0.998 } else { 0.99 };
-    next.speed = (next.speed * drag.powf(frames)).clamp(-MAX_REVERSE_SPEED, top_speed(state.coins));
+    speed = (speed * drag.powf(frames)).clamp(-MAX_REVERSE_SPEED, top_speed(coins));
+    speed *= (1.0 - strayed * 0.05).powf(frames);
 
-    next.position += next.forward() * next.speed * dt;
-    let road = road_under(next.position, state.distance, track);
-    next.distance = road.distance;
-    next.lateral = road.lateral;
-    next.half_width = road.half_width;
-    next.carry(&road, ground, dt);
-
-    let reach = next.half_width + OFF_ROAD_MARGIN;
-    let strayed = ((next.lateral.abs() - reach).max(0.0) / OFF_ROAD_RAMP).min(1.0);
-    next.speed *= (1.0 - strayed * 0.05).powf(frames);
-    next
-}
-
-/// The road at the place a kart is over, which may be a bridge above it or the road beside it.
-struct RoadUnder {
-    /// How far along the track that place is.
-    distance: f32,
-    /// The way the road faces there.
-    up: Vec3,
-    /// How far the place is to the right of the centerline.
-    lateral: f32,
-    /// Half the width of the road there.
-    half_width: f32,
-    /// The height of the surface plane of the road at the place.
-    height: f32,
-}
-
-/// A surface that can hold the kart: its height and the way it faces.
-struct Support {
-    height: f32,
-    up: Vec3,
-}
-
-/// Finds the road under `position`, near `around` metres along the track, on the surface plane
-/// of the road there.
-fn road_under(position: Vec3, around: f32, track: &BakedTrack) -> RoadUnder {
-    let near = track.nearest_distance_near(position, around, SEARCH_WINDOW);
-    let coarse = track.sample_at_distance(near);
-    let along = (position - coarse.position).dot(coarse.tangent);
-    let distance = (near + along).rem_euclid(track.length());
-    let frame = track.sample_at_distance(distance);
-
-    let offset = Vec3::new(
-        position.x - frame.position.x,
-        0.0,
-        position.z - frame.position.z,
-    );
-    let rise = -(frame.up.x * offset.x + frame.up.z * offset.z) / frame.up.y.max(0.2);
-    RoadUnder {
-        distance,
-        up: frame.up,
-        lateral: (offset + Vec3::Y * rise).dot(frame.right),
-        half_width: frame.width / 2.0,
-        height: frame.position.y + rise,
+    let slide = motion.velocity.dot(side);
+    Motion {
+        velocity: motion.velocity + forward * (speed - along) - side * slide,
+        heading,
     }
 }
 
-impl KartState {
-    /// Holds the kart up on the road or the ground under it, or lets it fall.
-    ///
-    /// A surface holds the kart when the kart is not higher above it than its own height plus how
-    /// far the surface can fall away in a step, so it follows slopes down instead of leaving the
-    /// ground. The road also needs the kart to be between its edges and not far under it, so the
-    /// ground under a bridge is not the bridge.
-    fn carry(&mut self, road: &RoadUnder, ground: &Ground, dt: f32) {
-        let height = self.position.y;
-        let slack = KART_WIDTH + self.speed.abs() * dt * MAX_GRADE;
-        let xz = self.position.xz();
-        let supports: Vec<Support> = [
-            (road.lateral.abs() <= road.half_width && height >= road.height - slack).then_some(
-                Support {
-                    height: road.height,
-                    up: road.up,
-                },
-            ),
-            ground.height_at(xz).map(|height| Support {
-                height,
-                up: ground.normal_at(xz),
-            }),
-        ]
-        .into_iter()
-        .flatten()
-        .collect();
-        let highest = |held: &dyn Fn(&Support) -> bool| {
-            supports
-                .iter()
-                .filter(|support| held(support))
-                .max_by(|a, b| a.height.total_cmp(&b.height))
-        };
-        if let Some(support) = highest(&|support| height <= support.height + slack) {
-            self.position.y = support.height;
-            self.climb = 0.0;
-            self.up = support.up;
-            return;
-        }
-        self.climb -= GRAVITY * dt;
-        self.position.y += self.climb * dt;
-        let below = self.position.y;
-        if let Some(support) = highest(&|support| below <= support.height) {
-            self.position.y = support.height;
-            self.climb = 0.0;
-            self.up = support.up;
-        }
-    }
-}
-
-/// Where the camera sits relative to a kart that faces `heading`.
-pub fn camera_offset(heading: f32) -> Vec3 {
-    Vec3::new(heading.sin() * -20.0, 12.0, heading.cos() * -20.0)
+/// The direction of `heading` along a surface that leans as `up` does.
+fn level_forward(heading: f32, up: Vec3) -> Vec3 {
+    let flat = Vec3::new(heading.sin(), 0.0, heading.cos());
+    (flat - up * flat.dot(up)).normalize_or(flat)
 }
 
 /// What a driver who follows the centerline asks of the kart: it aims at the road a little way
@@ -361,35 +325,142 @@ pub fn autopilot_keys(
     }
 }
 
-/// Reads the keyboard, restarts the race on `R` and advances the kart.
+/// The road at the place a kart is over, which may be a bridge above it or the road beside it.
+struct RoadUnder {
+    /// How far along the track that place is.
+    distance: f32,
+    /// How far the place is to the right of the centerline.
+    lateral: f32,
+    /// Half the width of the road there.
+    half_width: f32,
+}
+
+/// Finds the road under `position`, near `around` metres along the track, on the surface plane
+/// of the road there.
+fn road_under(position: Vec3, around: f32, track: &BakedTrack) -> RoadUnder {
+    let near = track.nearest_distance_near(position, around, SEARCH_WINDOW);
+    let coarse = track.sample_at_distance(near);
+    let along = (position - coarse.position).dot(coarse.tangent);
+    let distance = (near + along).rem_euclid(track.length());
+    let frame = track.sample_at_distance(distance);
+
+    let offset = Vec3::new(
+        position.x - frame.position.x,
+        0.0,
+        position.z - frame.position.z,
+    );
+    let rise = -(frame.up.x * offset.x + frame.up.z * offset.z) / frame.up.y.max(0.2);
+    RoadUnder {
+        distance,
+        lateral: (offset + Vec3::Y * rise).dot(frame.right),
+        half_width: frame.width / 2.0,
+    }
+}
+
+/// The normal of the surface under the kart, found by looking down onto the colliders of the
+/// road and the ground, or `None` when there is none within reach: the kart is in the air.
+fn surface_under(spatial: &SpatialQuery, kart: Entity, position: Vec3, up: Vec3) -> Option<Vec3> {
+    let hit = spatial.cast_ray(
+        position + up * BALL,
+        Dir3::new(-up).unwrap_or(Dir3::NEG_Y),
+        BALL + SURFACE_REACH,
+        true,
+        &SpatialQueryFilter::from_excluded_entities([kart]),
+    )?;
+    Some(if hit.normal.y < 0.0 {
+        -hit.normal
+    } else {
+        hit.normal
+    })
+}
+
+/// Lets [`KartState`] say where the body of the kart is and how it moves, leans the kart with the
+/// surface under it, and turns its model to the way it faces.
+pub fn read_kart(
+    time: Res<Time>,
+    track: Res<BakedTrack>,
+    spatial: SpatialQuery,
+    kart: Single<(Entity, &mut Transform, &LinearVelocity), With<Kart>>,
+    mut state: ResMut<KartState>,
+) {
+    let (entity, mut transform, velocity) = kart.into_inner();
+    let position = transform.translation;
+    let lean = 1.0 - (-LEAN_RATE * time.delta_secs()).exp();
+    let target = surface_under(&spatial, entity, position, state.up).unwrap_or(Vec3::Y);
+    let up = state.up.slerp(target, lean).normalize_or(Vec3::Y);
+    let road = road_under(position, state.distance, &track);
+    *state = KartState {
+        position,
+        speed: velocity.dot(level_forward(state.heading, up)),
+        distance: road.distance,
+        climb: velocity.y,
+        up,
+        lateral: road.lateral,
+        half_width: road.half_width,
+        ..*state
+    };
+    transform.rotation = state.rotation();
+}
+
+/// Reads the keyboard, restarts the race on `R` and drives the body of the kart.
 pub fn drive_kart(
     keys: Res<ButtonInput<KeyCode>>,
     time: Res<Time>,
     track: Res<BakedTrack>,
-    ground: Res<Ground>,
     mut state: ResMut<KartState>,
     mut race: ResMut<Race>,
+    mut puts: MessageWriter<PutKart>,
+    mut velocity: Single<&mut LinearVelocity, With<Kart>>,
 ) {
     if keys.just_pressed(KeyCode::KeyR) {
-        *state = state.respawn(&track);
+        puts.write(PutKart(state.respawn(&track)));
         *race = Race::default();
+        return;
     }
-    let input = KartInput::from_keys(&keys);
-    *state = step(
-        *state,
-        input,
+    let moved = drive(
+        Motion {
+            velocity: velocity.0,
+            heading: state.heading,
+        },
+        state.up,
+        KartInput::from_keys(&keys),
+        state.coins,
+        strayed(&state),
         time.delta_secs().min(MAX_STEP),
-        &track,
-        &ground,
     );
+    velocity.0 = moved.velocity;
+    state.heading = moved.heading;
 }
 
-/// Moves the kart model to the kart state.
-pub fn update_kart_transform(state: Res<KartState>, mut kart: Query<&mut Transform, With<Kart>>) {
-    if let Ok(mut transform) = kart.single_mut() {
-        transform.translation = state.position;
-        transform.rotation = state.rotation();
+/// Puts the kart where the last [`PutKart`] says, standing still. The way the race measured the
+/// kart driving starts from there, so the jump does not count as driving through a gate.
+pub fn place_kart(
+    mut puts: MessageReader<PutKart>,
+    mut race: ResMut<Race>,
+    mut state: ResMut<KartState>,
+    mut kart: Query<(&mut Transform, &mut LinearVelocity), With<Kart>>,
+) {
+    let Some(PutKart(put)) = puts.read().last().copied() else {
+        return;
+    };
+    *state = put;
+    race.last = None;
+    for (mut transform, mut velocity) in &mut kart {
+        transform.translation = put.position;
+        transform.rotation = put.rotation();
+        velocity.0 = Vec3::ZERO;
     }
+}
+
+/// Puts the kart where `state` says on the next frame, as the game does when it puts it back.
+#[cfg(test)]
+pub fn put(app: &mut App, state: KartState) {
+    app.world_mut().write_message(PutKart(state));
+}
+
+/// Where the camera sits relative to a kart that faces `heading`.
+pub fn camera_offset(heading: f32) -> Vec3 {
+    Vec3::new(heading.sin() * -20.0, 12.0, heading.cos() * -20.0)
 }
 
 /// Lets the camera trail behind the kart and look ahead of it, smoothly.
@@ -416,22 +487,17 @@ pub fn follow_camera(
 
 #[cfg(test)]
 mod tests {
-    use std::sync::LazyLock;
+    use std::time::Duration;
+
+    use avian3d::prelude::{Gravity, PhysicsPlugins};
+    use bevy::asset::AssetPlugin;
+    use bevy::time::TimeUpdateStrategy;
+    use bevy::transform::TransformPlugin;
 
     use super::*;
-    use crate::ground::{BASE, Brush, CHUNKS};
     use crate::track::{ControlPoint, TrackDesign};
 
-    const DT: f32 = 1.0 / 60.0;
-
-    /// Flat ground under the upstream track.
-    static GROUND: LazyLock<Ground> =
-        LazyLock::new(|| Ground::new(Vec2::ZERO, 1200.0, CHUNKS, BASE));
-
-    /// A step on the flat ground under the upstream track.
-    fn step(state: KartState, input: KartInput, dt: f32, track: &BakedTrack) -> KartState {
-        super::step(state, input, dt, track, &GROUND)
-    }
+    const DT: f32 = 1.0 / 64.0;
     const GAS: KartInput = KartInput {
         throttle: 1.0,
         steer: 0.0,
@@ -441,9 +507,23 @@ mod tests {
         steer: 0.0,
     };
 
-    /// The distance along the default track of the straight that starts at its second point.
-    fn straight_start(track: &BakedTrack) -> f32 {
-        track.nearest_t(Vec3::new(80.0, 0.8, 100.0)) * track.length()
+    /// A kart that faces along `+Z`, level, at `speed`.
+    fn at(speed: f32) -> Motion {
+        Motion {
+            velocity: Vec3::Z * speed,
+            heading: 0.0,
+        }
+    }
+
+    fn speed(motion: Motion) -> f32 {
+        motion.velocity.dot(Vec3::Z)
+    }
+
+    fn run(mut motion: Motion, input: KartInput, coins: u32, strayed: f32, steps: usize) -> Motion {
+        for _ in 0..steps {
+            motion = drive(motion, Vec3::Y, input, coins, strayed, DT);
+        }
+        motion
     }
 
     fn input(pressed: &[KeyCode]) -> KartInput {
@@ -480,43 +560,35 @@ mod tests {
 
     #[test]
     fn accelerating_raises_the_speed_up_to_the_maximum() {
-        let track = TrackDesign::upstream().bake();
-        let mut state = KartState::at_distance(&track, straight_start(&track));
-        let mut previous = state.speed;
-        for _ in 0..110 {
-            state = step(state, GAS, DT, &track);
-            assert!(state.speed >= previous);
-            assert!(state.speed <= MAX_SPEED);
-            previous = state.speed;
+        let mut motion = at(0.0);
+        let mut previous = 0.0;
+        for _ in 0..120 {
+            motion = run(motion, GAS, 0, 0.0, 1);
+            assert!(speed(motion) >= previous);
+            assert!(speed(motion) <= MAX_SPEED + 1e-3);
+            previous = speed(motion);
         }
-        assert_eq!(state.speed, MAX_SPEED);
-        assert!(!state.off_road());
         assert!(
-            state
-                .position
-                .distance(KartState::at_start(&track).position)
-                > 50.0
+            (speed(motion) - MAX_SPEED).abs() < 1e-2,
+            "{}",
+            speed(motion)
         );
     }
 
     #[test]
     fn braking_reduces_the_speed_down_to_reverse() {
-        let track = TrackDesign::upstream().bake();
-        let mut state = KartState::at_distance(&track, straight_start(&track));
-        state.speed = 40.0;
         let brake = KartInput {
             throttle: -0.6,
             steer: 0.0,
         };
+        let mut motion = at(40.0);
         for _ in 0..30 {
-            let before = state.speed;
-            state = step(state, brake, DT, &track);
-            assert!(state.speed < before);
+            let before = speed(motion);
+            motion = run(motion, brake, 0, 0.0, 1);
+            assert!(speed(motion) < before);
         }
-        for _ in 0..300 {
-            state = step(state, brake, DT, &track);
-        }
-        assert!((state.speed - -MAX_REVERSE_SPEED).abs() < 1.0);
+        let motion = run(motion, brake, 0, 0.0, 300);
+        assert!((speed(motion) - -MAX_REVERSE_SPEED).abs() < 1.0);
     }
 
     #[test]
@@ -539,36 +611,34 @@ mod tests {
 
     #[test]
     fn the_kart_reaches_the_top_speed_its_coins_allow_and_no_more() {
-        let track = TrackDesign::upstream().bake();
         for coins in [0, 3, 5, 9] {
-            let mut state = KartState {
-                coins,
-                ..KartState::at_distance(&track, straight_start(&track))
-            };
-            for _ in 0..100 {
-                state = step(state, GAS, DT, &track);
-            }
-            assert!(state.speed > 0.0);
-            assert!(state.speed <= top_speed(coins) + 1e-3);
-            state.speed = top_speed(coins) * 2.0;
-            state = step(state, GAS, DT, &track);
-            assert!((state.speed - top_speed(coins)).abs() < 1e-3, "{coins}");
+            let motion = run(at(0.0), GAS, coins, 0.0, 120);
+            assert!(speed(motion) > 0.0);
+            assert!(speed(motion) <= top_speed(coins) + 1e-3);
+            let over = run(at(top_speed(coins) * 2.0), GAS, coins, 0.0, 1);
+            assert!((speed(over) - top_speed(coins)).abs() < 1e-3, "{coins}");
         }
     }
 
     #[test]
     fn coasting_slows_the_kart_down() {
-        let track = TrackDesign::upstream().bake();
-        let mut state = KartState::at_distance(&track, straight_start(&track));
-        state.speed = 40.0;
-        let coasted = step(state, COAST, DT, &track);
-        assert!(coasted.speed < 40.0 && coasted.speed > 39.0);
+        let coasted = run(at(40.0), COAST, 0, 0.0, 1);
+        assert!(speed(coasted) < 40.0 && speed(coasted) > 39.0);
     }
 
     #[test]
-    fn steering_changes_the_heading_less_at_speed() {
-        let track = TrackDesign::upstream().bake();
-        let state = KartState::at_distance(&track, straight_start(&track));
+    fn the_tyres_take_the_speed_a_kart_has_sideways() {
+        let sliding = Motion {
+            velocity: Vec3::new(10.0, 0.0, 20.0),
+            heading: 0.0,
+        };
+        let held = run(sliding, COAST, 0, 0.0, 1);
+        assert!(held.velocity.x.abs() < 1e-4, "{}", held.velocity.x);
+        assert!(speed(held) > 19.0, "it keeps going ahead: {}", speed(held));
+    }
+
+    #[test]
+    fn steering_turns_the_kart_less_at_speed_and_leaves_the_fall_alone() {
         let left = KartInput {
             throttle: 0.0,
             steer: 1.0,
@@ -577,44 +647,101 @@ mod tests {
             throttle: 0.0,
             steer: -1.0,
         };
-        let turned_left = step(state, left, DT, &track);
-        let turned_right = step(state, right, DT, &track);
-        assert!((turned_left.heading - state.heading - 2.5 * DT).abs() < 1e-5);
-        assert!((turned_right.heading - state.heading + 2.5 * DT).abs() < 1e-5);
+        let turned = |motion, input| drive(motion, Vec3::Y, input, 0, 0.0, DT).heading;
+        assert!((turned(at(0.0), left) - 2.5 * DT).abs() < 1e-5);
+        assert!((turned(at(0.0), right) + 2.5 * DT).abs() < 1e-5);
+        let fast = turned(at(40.0), left);
+        assert!(fast > 0.0 && fast < turned(at(0.0), left));
 
-        let fast = KartState {
-            speed: 40.0,
-            ..state
+        let falling = Motion {
+            velocity: Vec3::new(0.0, -12.0, 0.0),
+            heading: 0.0,
         };
-        let fast_turn = step(fast, left, DT, &track).heading - state.heading;
-        assert!(fast_turn > 0.0 && fast_turn < turned_left.heading - state.heading);
+        assert_eq!(drive(falling, Vec3::Y, left, 0, 0.0, DT).velocity.y, -12.0);
+    }
+
+    #[test]
+    fn a_kart_on_a_slope_drives_along_the_slope() {
+        let up = Vec3::new(0.0, 1.0, -0.3).normalize();
+        let along = Motion {
+            velocity: level_forward(0.0, up) * 10.0,
+            heading: 0.0,
+        };
+        let moved = drive(along, up, GAS, 0, 0.0, DT);
+        assert!(
+            moved.velocity.dot(up).abs() < 1e-4,
+            "along the surface, not into it"
+        );
+        assert!(moved.velocity.y > 0.0, "it climbs");
     }
 
     #[test]
     fn straying_far_from_the_road_slows_the_kart() {
         let track = TrackDesign::upstream().bake();
-        let on_road = KartState {
-            speed: 40.0,
-            ..KartState::at_distance(&track, straight_start(&track))
-        };
+        let on_road = KartState::at_start(&track);
         let frame = track.sample_at_distance(on_road.distance);
         let straying = KartState {
-            position: frame.surface_point(frame.width / 2.0 + 14.0),
+            lateral: frame.width / 2.0 + OFF_ROAD_MARGIN + OFF_ROAD_RAMP * 2.0,
             ..on_road
         };
+        assert_eq!(strayed(&on_road), 0.0);
+        assert_eq!(strayed(&straying), 1.0);
+        assert!(!on_road.off_road() && straying.off_road());
 
-        let kept = step(on_road, COAST, DT, &track);
-        let slowed = step(straying, COAST, DT, &track);
-        assert!(!kept.off_road());
-        assert!(slowed.off_road());
-        assert!(slowed.speed < kept.speed);
+        let kept = run(at(40.0), COAST, 0, strayed(&on_road), 1);
+        let slowed = run(at(40.0), COAST, 0, strayed(&straying), 1);
+        assert!(speed(slowed) < speed(kept));
+        let kept = run(at(40.0), GAS, 0, strayed(&on_road), 20);
+        let slowed = run(at(40.0), GAS, 0, strayed(&straying), 20);
+        assert!(speed(slowed) < speed(kept));
+    }
 
-        let (mut on_road, mut straying) = (on_road, straying);
-        for _ in 0..20 {
-            on_road = step(on_road, GAS, DT, &track);
-            straying = step(straying, GAS, DT, &track);
-        }
-        assert!(straying.speed < on_road.speed);
+    /// An app with avian and the real driving systems, a road of `design` as a collider and a kart
+    /// on it `lateral` metres from the centerline at `distance` metres along it, at `speed`.
+    fn app_on(design: &TrackDesign, distance: f32, lateral: f32, speed: f32) -> App {
+        let track = design.bake();
+        let frame = track.sample_at_distance(distance);
+        let state = KartState {
+            position: frame.surface_point(lateral),
+            up: frame.up,
+            ..KartState::at_distance(&track, distance)
+        };
+        let mut app = App::new();
+        app.add_plugins((
+            MinimalPlugins,
+            AssetPlugin::default(),
+            TransformPlugin,
+            PhysicsPlugins::default(),
+        ))
+        .init_asset::<Mesh>()
+        .init_resource::<ButtonInput<KeyCode>>()
+        .init_resource::<Race>()
+        .add_message::<PutKart>()
+        .insert_resource(TimeUpdateStrategy::ManualDuration(Duration::from_secs_f32(
+            DT,
+        )))
+        .insert_resource(Gravity(Vec3::NEG_Y * GRAVITY))
+        .insert_resource(track)
+        .insert_resource(state)
+        .add_systems(Update, (read_kart, drive_kart, place_kart).chain());
+        let mesh = app
+            .world_mut()
+            .resource_mut::<Assets<Mesh>>()
+            .add(design.road_shape().build());
+        let collider = {
+            let meshes = app.world().resource::<Assets<Mesh>>();
+            Collider::trimesh_from_mesh(meshes.get(&mesh).unwrap()).expect("a road has triangles")
+        };
+        app.world_mut().spawn((RigidBody::Static, collider));
+        app.world_mut().spawn((
+            Kart,
+            Transform::from_translation(state.position).with_rotation(state.rotation()),
+            LinearVelocity(state.rotation() * Vec3::Z * speed),
+            body(),
+        ));
+        app.finish();
+        app.cleanup();
+        app
     }
 
     #[test]
@@ -625,207 +752,70 @@ mod tests {
             *roll = 0.3;
         }
         let track = design.bake();
-        let frame = track.sample(0.3);
-        let state = KartState {
-            position: frame.surface_point(4.0),
-            distance: track.length() * 0.3,
-            ..KartState::default()
-        };
-
-        let placed = step(state, COAST, 0.0, &track);
-        assert!((placed.lateral - 4.0).abs() < 0.1);
-        assert!(placed.position.distance(frame.surface_point(4.0)) < 0.1);
-        assert!(placed.position.y < frame.position.y);
-        assert!(placed.up.distance(frame.up) < 0.02);
-        assert!((placed.rotation() * Vec3::Y).distance(frame.up) < 0.02);
-        assert!(!placed.off_road());
+        let distance = track.length() * 0.3;
+        let frame = track.sample_at_distance(distance);
+        let mut app = app_on(&design, distance, 4.0, 0.0);
+        for _ in 0..128 {
+            app.update();
+        }
+        let state = *app.world().resource::<KartState>();
+        assert!(
+            (state.lateral - 4.0).abs() < 0.5,
+            "it stays where it was put: {}",
+            state.lateral
+        );
+        assert!(
+            state.up.distance(frame.up) < 0.1,
+            "it leans with the road: {} against {}",
+            state.up,
+            frame.up
+        );
+        assert!(
+            state.position.y < frame.position.y,
+            "it is on the low side of the bank"
+        );
+        assert!(!state.off_road());
+        assert!(!state.falling());
     }
 
     #[test]
     fn the_kart_follows_the_height_of_the_road() {
         let design = TrackDesign::upstream().with_point_raised(3, 4.0);
         let track = design.bake();
-        for index in 0..40 {
-            let distance = track.length() * index as f32 / 40.0;
-            let state = KartState {
-                speed: 20.0,
-                ..KartState::at_distance(&track, distance)
-            };
-            let moved = step(state, COAST, DT, &track);
-            let frame = track.sample_at_distance(moved.distance);
+        let start = track.length() * 0.45;
+        let mut app = app_on(&design, start, 0.0, 20.0);
+        for step in 0..128 {
+            app.update();
+            let state = *app.world().resource::<KartState>();
+            let frame = track.sample_at_distance(state.distance);
             assert!(
-                (moved.position.y - frame.position.y).abs() < 0.3,
-                "{index}: {} against {}",
-                moved.position.y,
+                (state.position.y - frame.position.y).abs() < 0.6,
+                "{step}: {} against {}",
+                state.position.y,
                 frame.position.y
             );
-            assert!(!moved.falling(), "{index}");
+            assert!(!state.falling(), "{step}");
         }
-    }
-
-    /// A kart on the road at the start of the straight, driving across it at `speed`.
-    fn crossing(track: &BakedTrack, speed: f32) -> KartState {
-        let state = KartState::at_distance(track, straight_start(track));
-        KartState {
-            speed,
-            heading: state.heading - std::f32::consts::FRAC_PI_2,
-            ..state
-        }
-    }
-
-    #[test]
-    fn a_kart_that_leaves_the_road_drives_on_the_ground_beside_it() {
-        let track = TrackDesign::upstream().bake();
-        let mut state = crossing(&track, 30.0);
-        for _ in 0..120 {
-            state = step(state, COAST, DT, &track);
-        }
-        assert!(state.off_road());
-        assert!(!state.falling());
-        let ground = GROUND.height_at(state.position.xz()).unwrap();
-        assert!(
-            (state.position.y - ground).abs() < 1e-4,
-            "{}",
-            state.position.y
-        );
-        assert_eq!(state.climb, 0.0);
-    }
-
-    #[test]
-    fn a_kart_that_drives_off_a_raised_road_falls_and_lands_on_the_ground() {
-        let design = TrackDesign::upstream().with_point_raised(1, 12.0);
-        let track = design.bake();
-        let start = track.nearest_t(design.control_points[1].position) * track.length();
-        let mut state = crossing(&track, 30.0);
-        state = KartState {
-            speed: 30.0,
-            ..KartState {
-                heading: state.heading,
-                ..KartState::at_distance(&track, start)
-            }
-        };
-        let mut fell = false;
-        let mut lowest_climb = 0.0_f32;
-        for _ in 0..240 {
-            state = step(state, COAST, DT, &track);
-            fell |= state.falling();
-            lowest_climb = lowest_climb.min(state.climb);
-        }
-        assert!(
-            fell,
-            "the kart should drop off the edge of a road 12 metres up"
-        );
-        assert!(
-            lowest_climb < -5.0,
-            "it gathers speed as it falls: {lowest_climb}"
-        );
-        assert!(state.position.y < 0.0, "{}", state.position.y);
-        assert!(!state.falling(), "it has landed");
-    }
-
-    #[test]
-    fn a_kart_follows_a_hill_beside_the_road() {
-        let track = TrackDesign::upstream().bake();
-        let state = crossing(&track, 30.0);
-        let aside =
-            state.position + Vec3::new(state.heading.sin(), 0.0, state.heading.cos()) * 40.0;
-        let hill = GROUND.raised(&Brush {
-            center: aside.xz(),
-            radius: 30.0,
-            amount: 3.0,
-            falloff: 1.0,
-        });
-        let mut state = state;
-        let mut top = f32::MIN;
-        for _ in 0..150 {
-            state = super::step(state, COAST, DT, &track, &hill);
-            top = top.max(state.position.y);
-            if let Some(height) = hill.height_at(state.position.xz()) {
-                if state.off_road() && !state.falling() {
-                    assert!((state.position.y - height).abs() < 0.5);
-                }
-            }
-        }
-        assert!(top > BASE + 1.0, "the kart climbed the hill: {top}");
-    }
-
-    #[test]
-    fn a_kart_over_a_hole_falls_through_the_ground() {
-        let track = TrackDesign::upstream().bake();
-        let state = crossing(&track, 0.0);
-        let ground = GROUND.with_holes(state.position.xz(), 12.0, true);
-        let mut state = KartState {
-            position: state.position.with_y(BASE),
-            ..state
-        };
-        let mut previous = state.position.y;
-        for _ in 0..30 {
-            state = super::step(state, COAST, DT, &track, &ground);
-            assert!(state.position.y < previous, "{}", state.position.y);
-            previous = state.position.y;
-        }
-        assert!(state.falling());
-        assert!(state.position.y < BASE - 3.0, "{}", state.position.y);
-        assert!(state.climb < -10.0, "{}", state.climb);
-        let abyss = abyss(&ground, &track);
-        for _ in 0..600 {
-            state = super::step(state, COAST, DT, &track, &ground);
-        }
-        assert!(state.position.y < abyss, "nothing catches it");
-    }
-
-    #[test]
-    fn a_kart_beyond_the_edge_of_the_map_falls() {
-        let track = TrackDesign::upstream().bake();
-        let edge = GROUND.middle() + Vec2::new(GROUND.half() + 1.0, 0.0);
-        let mut state = KartState {
-            position: Vec3::new(edge.x, BASE, edge.y),
-            ..KartState::default()
-        };
-        for _ in 0..20 {
-            state = step(state, COAST, DT, &track);
-        }
-        assert!(state.falling());
-        assert!(state.position.y < BASE);
-    }
-
-    #[test]
-    fn the_ground_under_a_bridge_is_not_mistaken_for_the_road_above_it() {
-        let design = TrackDesign::upstream().with_point_raised(3, 8.0);
-        let track = design.bake();
-        let top = track
-            .frames()
-            .iter()
-            .max_by(|a, b| a.position.y.total_cmp(&b.position.y))
-            .copied()
-            .unwrap();
-        let state = KartState {
-            position: top.position.with_y(BASE),
-            distance: track.nearest_t(top.position) * track.length(),
-            ..KartState::default()
-        };
-        let moved = step(state, COAST, DT, &track);
-        assert!(
-            (moved.position.y - BASE).abs() < 1e-3,
-            "{}",
-            moved.position.y
-        );
-        assert!(!moved.falling());
+        let state = *app.world().resource::<KartState>();
+        assert!(state.speed > 1.0, "it kept rolling: {}", state.speed);
     }
 
     #[test]
     fn the_abyss_is_below_the_ground_and_below_a_road_that_dips_under_it() {
+        use crate::ground::{BASE, CHUNKS};
+
+        let ground = Ground::new(Vec2::ZERO, 1200.0, CHUNKS, BASE);
         let track = TrackDesign::upstream().bake();
-        assert_eq!(abyss(&GROUND, &track), GROUND.abyss());
-        let dip = -(GROUND.relief() * 4.0);
+        assert_eq!(abyss(&ground, &track), ground.abyss());
+        let dip = -(ground.relief() * 4.0);
         let deep = TrackDesign::upstream().with_point_raised(3, dip).bake();
-        assert!(abyss(&GROUND, &deep) < GROUND.abyss());
+        assert!(abyss(&ground, &deep) < ground.abyss());
         let lowest = deep
             .frames()
             .iter()
             .map(|frame| frame.position.y)
             .fold(f32::MAX, f32::min);
-        assert!(abyss(&GROUND, &deep) < lowest);
+        assert!(abyss(&ground, &deep) < lowest);
     }
 
     #[test]

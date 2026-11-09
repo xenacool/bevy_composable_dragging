@@ -7,6 +7,7 @@
 //! arches, light posts, coins and scenery from a [`TrackDesign`] and marks all of it with
 //! [`TrackEntity`], so a rebuild only has to despawn the marked entities.
 
+use avian3d::prelude::{Collider, RigidBody};
 use bevy::camera::visibility::Visibility;
 use bevy::color::LinearRgba;
 use bevy::ecs::system::ResMut;
@@ -18,7 +19,7 @@ use bevy_gradmesh::{
 };
 
 use crate::ground::Ground;
-use crate::kart::{Kart, KartCamera};
+use crate::kart::{Kart, KartCamera, body};
 use crate::race::Coin;
 use crate::track::{BakedTrack, DecorationKind, DecorationSite, TrackDesign};
 
@@ -33,6 +34,10 @@ const LIGHT_POST_COUNT: usize = 20;
 /// when the design changes.
 #[derive(Component)]
 pub struct TrackEntity;
+
+/// Marks the road surface, whose mesh is in world space.
+#[derive(Component)]
+pub struct RoadSurface;
 
 /// Marks a chunk of the ground, with the key of the ground it was built from, so only the
 /// chunks that changed are built again.
@@ -57,6 +62,37 @@ pub fn spawn_driver(
         Transform::from_xyz(0.0, 12.0, -20.0).looking_at(Vec3::ZERO, Vec3::Y),
     ));
     spawn_kart(commands, meshes, materials);
+}
+
+/// The surfaces a kart drives on: the road and the chunks of the ground.
+type Surface = Or<(With<GroundChunk>, With<RoadSurface>)>;
+
+/// Gives the road and the ground a collider from their meshes while a kart exists, to the ones
+/// that have none, and takes the colliders away when there is no kart. Building a collider is
+/// slow and the surfaces are built again on every step of an edit, so they only get one for a
+/// drive.
+pub fn sync_surface_colliders(
+    mut commands: Commands,
+    karts: Query<(), With<Kart>>,
+    surfaces: Query<(Entity, &Mesh3d, Has<Collider>), Surface>,
+    meshes: Res<Assets<Mesh>>,
+) {
+    let driving = !karts.is_empty();
+    for (entity, mesh, has_collider) in &surfaces {
+        match (driving, has_collider) {
+            (true, false) => {
+                if let Some(collider) = meshes.get(&mesh.0).and_then(Collider::trimesh_from_mesh) {
+                    commands
+                        .entity(entity)
+                        .insert((RigidBody::Static, collider));
+                }
+            }
+            (false, true) => {
+                commands.entity(entity).remove::<(RigidBody, Collider)>();
+            }
+            _ => {}
+        }
+    }
 }
 
 /// Spawns the light. The ground is built from the [`Ground`] resource by [`sync_ground`].
@@ -124,6 +160,7 @@ pub fn sync_ground(
                 GroundChunk { index, key },
                 Mesh3d(meshes.add(shape.build())),
                 MeshMaterial3d(material.clone()),
+                Transform::from_translation(ground.chunk_center(index)),
             ));
         }
     }
@@ -161,6 +198,7 @@ fn spawn_road(
     commands.spawn((
         Mesh3d(meshes.add(road_shape.build())),
         MeshMaterial3d(materials.add(road)),
+        RoadSurface,
         TrackEntity,
     ));
 }
@@ -423,7 +461,7 @@ fn spawn_kart(
     materials: &mut Assets<GradMeshMaterial>,
 ) {
     let root = commands
-        .spawn((Transform::default(), Visibility::default(), Kart))
+        .spawn((Transform::default(), Visibility::default(), Kart, body()))
         .id();
     let part = |commands: &mut Commands,
                 mesh: Handle<Mesh>,

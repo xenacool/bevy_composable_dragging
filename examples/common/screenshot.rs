@@ -18,7 +18,7 @@
 //! This plugin detects when the first frame has actually rendered by observing
 //! `FrameCount` (which increments during the `Last` schedule after rendering).
 //! It then spawns the screenshot entity and waits for the `ScreenshotCaptured`
-//! observer before exiting — no frame counters or sleep needed.
+//! observer before exiting -- no frame counters or sleep needed.
 //!
 //! Configure `RenderPlugin` with `synchronous_pipeline_compilation: true` so all
 //! shaders compile before the first frame. Without this, the first frame may render
@@ -251,7 +251,7 @@ struct AutoScreenshotFilename(String);
 #[derive(Resource)]
 struct WaitFrames(u32);
 
-/// Tracks the screenshot lifecycle: pending → triggered → saved → quit.
+/// Tracks the screenshot lifecycle: pending -> triggered -> saved -> quit.
 ///
 /// Exposed so examples can react to the first screenshot being saved, for example
 /// to open a radial menu before the second shot is captured.
@@ -267,8 +267,8 @@ pub struct ScreenshotState {
     pub second_saved: bool,
     /// Set by the example after it completes the state change (e.g., opens a menu).
     /// The second shot fires only after this flag is `true`, establishing a happens-before
-    /// relationship: the first screenshot is saved → the example changes state and signals
-    /// readiness → the second screenshot is captured.
+    /// relationship: the first screenshot is saved -> the example changes state and signals
+    /// readiness -> the second screenshot is captured.
     pub ready_for_second_shot: bool,
     /// The frame count when `ready_for_second_shot` was set. The second shot waits at least one
     /// frame after this so the changed state (e.g., an open menu) is actually rendered.
@@ -349,7 +349,7 @@ fn quit_after_screenshot_saved(
 /// The example changes state (e.g., opens a radial menu) when `saved` becomes `true`, then sets
 /// `ready_for_second_shot`. This system fires only after both conditions are met and at least one
 /// frame has passed since readiness was signaled, establishing a happens-before relationship:
-/// first screenshot saved → state changed → ready signaled → one frame rendered → second screenshot.
+/// first screenshot saved -> state changed -> ready signaled -> one frame rendered -> second screenshot.
 fn capture_second_shot(
     mut state: ResMut<ScreenshotState>,
     filename: Res<SecondShotFilename>,

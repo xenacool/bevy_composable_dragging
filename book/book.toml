@@ -1,0 +1,13 @@
+[book]
+title = "Bevy Composable Dragging Documentation"
+authors = ["Jessica Collins"]
+description = "Comprehensive guide to using bevy_composable_dragging for declarative, composable dragging in Bevy"
+language = "en"
+src = "src"
+
+[output.html]
+git-repository-url = "https://github.com/xenacool/bevy_composable_dragging"
+edit-url-template = "https://github.com/xenacool/bevy_composable_dragging/edit/main/book/{path}"
+
+[output.linkcheck]
+optional = true

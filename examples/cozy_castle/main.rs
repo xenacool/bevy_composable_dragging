@@ -17,6 +17,11 @@
 //!
 //! Run with `cargo run --example cozy_castle --features shapes-3d`.
 
+#![expect(
+    clippy::disallowed_types,
+    reason = "the views and the drags of the library are shared through `Arc`; the guidelines ban shared ownership, and this expectation warns once the last `Arc` of the example is gone"
+)]
+
 use std::collections::{HashMap, HashSet};
 use std::f32::consts::{PI, TAU};
 use std::sync::Arc;

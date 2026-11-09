@@ -1,6 +1,6 @@
 [package]
 name = "bevy_composable_dragging"
-version = "0.1.2"
+version = "0.2.0"
 authors = ["Jessica Collins (https://github.com/xenacool)"]
 edition = "2024"
 rust-version = "1.87"
@@ -44,11 +44,14 @@ shapes-3d = ["gradmesh"]
 
 [dependencies]
 bevy = { version = "0.20", default-features = false, features = ["bevy_color"] }
-bevy_gradmesh = { version = "0.2.7", optional = true }
+bevy_gradmesh = { version = "0.3.1", optional = true }
 
 # Examples need windowing, tonemapping LUT textures and PNG support which the library does not require.
 [dev-dependencies]
 bevy = { version = "0.20", features = ["bevy_pbr", "mesh_picking", "tonemapping_luts", "png"] }
+# Colliders and rigid bodies for the examples and the physics tests. Avian reads meshes only, so
+# the headless tests need no GPU.
+avian3d = { version = "0.8", default-features = false, features = ["3d", "parry-f32", "collider-from-mesh", "parallel"] }
 
 [[example]]
 name = "hello"
@@ -142,3 +145,9 @@ required-features = ["shapes-3d"]
 name = "kart_racer_editor"
 path = "examples/kart_racer_editor/main.rs"
 required-features = ["shapes-3d"]
+
+[[example]]
+name = "physics_lab"
+path = "examples/physics_lab/main.rs"
+required-features = ["shapes-3d"]
+test = true

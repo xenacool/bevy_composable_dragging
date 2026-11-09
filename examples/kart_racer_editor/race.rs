@@ -8,7 +8,7 @@
 use bevy::prelude::*;
 
 use crate::ground::Ground;
-use crate::kart::{KART_WIDTH, KartState, abyss};
+use crate::kart::{KART_WIDTH, KartState, PutKart, abyss};
 use crate::track::BakedTrack;
 
 /// How many laps make a race.
@@ -228,7 +228,8 @@ pub fn put_back_before_missed(
     track: Res<BakedTrack>,
     checkpoints: Res<Checkpoints>,
     mut race: ResMut<Race>,
-    mut state: ResMut<KartState>,
+    state: Res<KartState>,
+    mut puts: MessageWriter<PutKart>,
 ) {
     let past = past_next_checkpoint(&race, &checkpoints.0, state.distance, track.length());
     if !race.watch(past, time.elapsed_secs()) {
@@ -237,10 +238,10 @@ pub fn put_back_before_missed(
     let Some(gate) = checkpoints.0.get(race.next % checkpoints.0.len()) else {
         return;
     };
-    *state = KartState {
+    puts.write(PutKart(KartState {
         coins: state.coins,
         ..KartState::at_distance(&track, gate.distance - KART_WIDTH)
-    };
+    }));
     race.last = None;
 }
 
@@ -268,12 +269,13 @@ pub fn put_back_after_fall(
     ground: Res<Ground>,
     checkpoints: Res<Checkpoints>,
     mut race: ResMut<Race>,
-    mut state: ResMut<KartState>,
+    state: Res<KartState>,
+    mut puts: MessageWriter<PutKart>,
 ) {
     if state.position.y >= abyss(&ground, &track) {
         return;
     }
-    *state = after_a_fall(&state, &race, &checkpoints.0, &track);
+    puts.write(PutKart(after_a_fall(&state, &race, &checkpoints.0, &track)));
     race.last = None;
 }
 

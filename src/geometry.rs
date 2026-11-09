@@ -207,15 +207,18 @@ impl Geometry {
 
     /// The local-space bounds of the geometry.
     ///
-    /// The bounds of a `Grad` shape cost one mesh build in `bevy_gradmesh`, so they are
-    /// remembered per shape.
+    /// A `Grad` shape remembers its bounds, so asking again is free.
     #[must_use]
     pub fn bounds(&self) -> Bounds {
         match self {
             Self::Rectangle => Bounds::new(Vec3::ZERO, Vec3::new(0.5, 0.5, 0.0), false),
             Self::Circle => Bounds::new(Vec3::ZERO, Vec3::new(0.5, 0.5, 0.0), true),
             #[cfg(feature = "gradmesh")]
-            Self::Grad(shape) => grad_bounds(shape),
+            Self::Grad(shape) => Bounds::new(
+                shape.bounds().center(),
+                shape.bounds().half_extents(),
+                shape.is_round(),
+            ),
             #[cfg(feature = "gradmesh")]
             Self::Sdf(shape) => Bounds::new(
                 Vec3::ZERO,
@@ -232,30 +235,6 @@ impl Geometry {
     pub(crate) fn is_gradient(&self) -> bool {
         matches!(self, Self::Grad(_) | Self::Mesh(_))
     }
-}
-
-#[cfg(feature = "gradmesh")]
-fn grad_bounds(shape: &Shape) -> Bounds {
-    use std::collections::HashMap;
-    use std::sync::{Mutex, OnceLock};
-
-    static MEMO: OnceLock<Mutex<HashMap<Shape, Bounds>>> = OnceLock::new();
-    let memo = MEMO.get_or_init(|| Mutex::new(HashMap::new()));
-    if let Some(bounds) = memo.lock().ok().and_then(|memo| memo.get(shape).copied()) {
-        return bounds;
-    }
-    let bounds = measure(shape);
-    if let Ok(mut memo) = memo.lock() {
-        memo.insert(shape.clone(), bounds);
-    }
-    bounds
-}
-
-/// Reads the bounds and roundness of `shape` from `bevy_gradmesh`.
-#[cfg(feature = "gradmesh")]
-fn measure(shape: &Shape) -> Bounds {
-    let bounds = shape.bounds();
-    Bounds::new(bounds.center(), bounds.half_extents(), shape.is_round())
 }
 
 #[cfg(test)]
@@ -299,6 +278,10 @@ mod tests {
 
     #[cfg(feature = "pbr")]
     #[test]
+    #[allow(
+        clippy::mutable_key_type,
+        reason = "the hash of a shape never reads the bounds it remembers"
+    )]
     fn a_mesh_is_identified_by_its_key_alone() {
         use std::collections::HashSet;
         let a = mesh_of(1, 2.0, 4.0);
@@ -359,6 +342,10 @@ mod tests {
         }
 
         #[test]
+        #[allow(
+            clippy::mutable_key_type,
+            reason = "the hash of a shape never reads the bounds it remembers"
+        )]
         fn equal_shapes_are_equal_and_hash_alike() {
             use std::collections::HashSet;
             let a = grad(Shape::sphere(1.0, DETAIL));

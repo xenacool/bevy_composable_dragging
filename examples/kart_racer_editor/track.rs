@@ -417,6 +417,7 @@ impl TrackDesign {
         let widths: Vec<f32> = self.control_points.iter().map(|p| p.width).collect();
         let rolls: Vec<f32> = self.control_points.iter().map(|p| p.roll).collect();
         CatmullRomSpline::closed(points)
+            .expect("a track has at least MIN_POINTS control points")
             .with_channel(&widths)
             .with_channel(&rolls)
     }
@@ -785,9 +786,10 @@ impl TrackDesign {
 
         let length = baked.length();
         let separation = PI * self.min_turn_radius.max(self.widths.widest());
+        let distances = baked.distances();
         for (i, first) in frames.iter().enumerate() {
             for (j, second) in frames.iter().enumerate().skip(i + 1) {
-                let along = baked.distances()[j] - baked.distances()[i];
+                let along = distances[j] - distances[i];
                 if along.min(length - along) < separation {
                     continue;
                 }
@@ -796,8 +798,8 @@ impl TrackDesign {
                     < first.width.max(second.width);
                 if level && close {
                     return Err(TrackError::SegmentsTooClose {
-                        a: baked.distances()[i],
-                        b: baked.distances()[j],
+                        a: distances[i],
+                        b: distances[j],
                     });
                 }
             }
@@ -855,21 +857,16 @@ impl BakedTrack {
 
     /// Converts the baked spline into [`SweepFrame`]s for [`Shape::sweep_frames`].
     ///
-    /// Width comes from the spline channel scaled by curvature-based road width;
-    /// roll comes from the spline channel.
+    /// The sweep follows the [`RoadFrame`]s of the track, so the road is where the frames say it
+    /// is, banked the way they are: that is how the kart, the curbs, the guardrails and the gates
+    /// that stand by those frames sit on the road you see. Width is the width of the frame.
     fn sweep_frames_for(baked: &BakedSpline, design: &TrackDesign) -> Vec<SweepFrame> {
-        let frames = baked.sweep_frames(Some(0), Some(1));
-        let baked_frames = baked.frames();
-        frames
-            .into_iter()
-            .enumerate()
-            .map(|(i, frame)| {
-                let bf = baked_frames[i];
-                let width_scale = baked
-                    .channel_at_distance(0, bf.distance)
-                    .map_or(1.0, |w| w.clamp(MIN_POINT_WIDTH, MAX_POINT_WIDTH));
-                let road_width = design.widths.at(bf.curvature) * width_scale;
-                frame.with_scale(Vec2::new(road_width, frame.scale.y))
+        Self::from_baked(baked, design)
+            .frames()
+            .iter()
+            .map(|frame| {
+                SweepFrame::new(frame.position, -frame.right, frame.up)
+                    .with_scale(Vec2::new(frame.width, 1.0))
             })
             .collect()
     }

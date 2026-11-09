@@ -318,8 +318,6 @@ mod tests {
     fn a_long_animation_does_not_pile_up_gradient_materials() {
         use std::sync::atomic::{AtomicU32, Ordering};
 
-        use crate::shapes::{POOL_LIMIT, release_unused_materials};
-
         static STEP: AtomicU32 = AtomicU32::new(0);
         fn view() -> View<()> {
             let hue = STEP.load(Ordering::Relaxed) as f32;
@@ -330,7 +328,6 @@ mod tests {
             )))
         }
         let mut app = app_with(Rendering::Spatial, view);
-        app.add_systems(Update, release_unused_materials.after(sync_nodes::<()>));
         for step in 1..=120 {
             STEP.store(step, Ordering::Relaxed);
             app.world_mut()
@@ -340,7 +337,7 @@ mod tests {
         }
         app.update();
         let count = app.world().resource::<Assets<GradMeshMaterial>>().len();
-        assert!(count <= POOL_LIMIT + 2, "{count} materials are alive");
+        assert!(count <= 4, "{count} materials are alive");
         let orb = entity_of(&mut app, "orb");
         assert!(
             app.world()

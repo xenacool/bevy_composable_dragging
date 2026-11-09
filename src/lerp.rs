@@ -197,7 +197,7 @@ fn blend_pair<S>(a: &View<S>, b: &View<S>, pace: Pace, discrete: Option<&View<S>
             pickable: node.pickable,
             rendering: node.rendering,
             layer: node.layer,
-            drag: node.drag.clone(),
+            drag: None,
             drag_space: node.drag_space,
         });
     }

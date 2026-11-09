@@ -149,7 +149,7 @@ use std::sync::Arc;
 
 use bevy::camera::visibility::RenderLayers;
 use bevy::prelude::*;
-use bevy::sprite::{Anchor, Text2dShadow};
+use bevy::sprite::Anchor;
 use bevy_gradmesh::{Shape, Style};
 
 use crate::hud::{self, Footprint, HudHost, Layout, Theme};
@@ -735,7 +735,6 @@ fn sync_menu_labels<S: RadialHost>(
             } else {
                 Anchor::CENTER
             },
-            Text2dShadow::default(),
             RenderLayers::layer(layer),
             Transform::from_translation(label.at).with_scale(Vec3::splat(label.scale.max(HIDDEN))),
         ));

@@ -209,7 +209,7 @@ impl<S: Clone + Send + Sync + 'static> DragModel<S> {
     pub(crate) fn start_drag(&mut self) -> Option<Entity> {
         let pending = self.pending.take()?;
         let base = (self.view_fn)(&self.state);
-        let factory = base.get(&pending.node)?.drag.clone()?;
+        let spec = (base.get(&pending.node)?.drag.as_ref()?)();
         let grab_offset = self
             .shown
             .world_position(&pending.node)
@@ -224,7 +224,7 @@ impl<S: Clone + Send + Sync + 'static> DragModel<S> {
         )
         .with_grab_offset(grab_offset)
         .with_space(pending.space);
-        let behavior = factory().compile(&context);
+        let behavior = spec.compile(&context);
         self.transition = None;
         self.session = Some(Session {
             node: pending.node,

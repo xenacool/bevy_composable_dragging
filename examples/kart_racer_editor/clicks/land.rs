@@ -9,7 +9,7 @@ use super::{
     Harness, drag_by, ground_points, harness, is_under_pointer, press_and_release, run, use_tool,
 };
 use crate::ground::{BASE, CHUNKS, Ground};
-use crate::kart::{Kart, KartState, abyss};
+use crate::kart::{self, Kart, KartState, abyss};
 use crate::menu::{Item, Ring};
 use crate::race::{Checkpoints, Race};
 use crate::state::{Editor, Tool};
@@ -238,6 +238,15 @@ fn the_world_draws_the_land_the_editor_holds_and_builds_again_only_the_chunks_th
     for (index, key) in &drawn {
         assert_eq!(*key, ground.chunk_key(*index), "{index}");
     }
+    let world = harness.app.world_mut();
+    for (chunk, transform) in world.query::<(&GroundChunk, &Transform)>().iter(world) {
+        assert_eq!(
+            transform.translation,
+            ground.chunk_center(chunk.index),
+            "chunk {} is not where it belongs",
+            chunk.index
+        );
+    }
 
     use_tool(&mut harness, Tool::Hole, None);
     let pixel = ground_pixels(&mut harness)[0];
@@ -306,7 +315,7 @@ fn fall_and_return(harness: &mut Harness) -> Option<usize> {
         if state.position.y < below + (BASE - below) / 2.0 {
             fell = Some(frame);
         }
-        if fell.is_some() && state.position.y > BASE - 1.0 && state.speed == 0.0 {
+        if fell.is_some() && state.position.y > BASE - 1.0 && state.speed.abs() < 0.1 {
             return Some(frame);
         }
     }
@@ -340,10 +349,13 @@ fn fall_through_a_hole(race_next: usize) -> (KartState, f32) {
         .0
         .get(race_next.saturating_sub(1))
         .map_or(0.0, |gate| gate.distance);
-    *harness.app.world_mut().resource_mut::<KartState>() = KartState {
-        position: Vec3::new(spot.x, BASE + 0.5, spot.y),
-        ..KartState::default()
-    };
+    kart::put(
+        &mut harness.app,
+        KartState {
+            position: Vec3::new(spot.x, BASE + 0.5, spot.y),
+            ..KartState::default()
+        },
+    );
     assert!(
         fall_and_return(&mut harness).is_some(),
         "the kart falls and comes back"
@@ -362,7 +374,7 @@ fn a_kart_that_falls_through_a_hole_is_put_back_at_the_start_line_when_it_has_pa
         "{}",
         state.position
     );
-    assert_eq!(state.speed, 0.0);
+    assert!(state.speed.abs() < 0.1, "{}", state.speed);
     assert!(!state.falling());
 }
 
@@ -377,7 +389,7 @@ fn a_kart_that_falls_is_put_back_at_the_last_checkpoint_it_passed() {
         "{}",
         state.position
     );
-    assert_eq!(state.speed, 0.0);
+    assert!(state.speed.abs() < 0.1, "{}", state.speed);
 }
 
 #[test]

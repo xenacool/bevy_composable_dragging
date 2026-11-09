@@ -1,5 +1,12 @@
 # bevy_composable_dragging
 
+[![Crates.io](https://img.shields.io/crates/v/bevy_composable_dragging.svg)](https://crates.io/crates/bevy_composable_dragging)
+[![docs.rs](https://img.shields.io/docsrs/bevy_composable_dragging)](https://docs.rs/bevy_composable_dragging)
+[![Bevy](https://img.shields.io/badge/Bevy-0.20-232326)](https://bevyengine.org/)
+[![Rust](https://img.shields.io/badge/rust-1.87%2B-orange.svg)](https://www.rust-lang.org/)
+[![License](https://img.shields.io/crates/l/bevy_composable_dragging.svg)](LICENSE-MIT)
+[![Last commit](https://img.shields.io/github/last-commit/xenacool/bevy_composable_dragging)](https://github.com/xenacool/bevy_composable_dragging/commits)
+
 Declarative, composable dragging for [Bevy](https://bevyengine.org) 0.20, ported from
 [Dragology](https://declarative-dragging.github.io).
 
@@ -36,33 +43,12 @@ example `cargo run --example gradient_hanoi_3d --features shapes-3d`.
 ## Operators
 
 The operators follow Figure 4 of the paper. Specs are plain data that compile to a per-frame
-behavior, so they compose.
-
-| Operator | Meaning |
-|---|---|
-| `state(s)` | A single reachable state. |
-| `between([..])` / `between_with(.., options)` | Blends continuously inside the convex hull of the targets. `BetweenOptions` picks the weighting (`Hull`, `Delaunay` or `NaturalNeighbor`), a `sharpness` exponent that pulls towards the nearest target, and the `DropRule` (largest weight, or Dragology's nearest target). |
-| `closest([..])` / `closest_states(..)` | Picks the nearest target; `closest_with_options` adds `stickiness` against flicker and `lock_past` to hold the branch that carried the node away. |
-| `vary(state, [params])` / `vary_constrained` | Minimizes the pointer-to-node distance over numeric parameters, under constraints. |
-| `vary_with(.., VaryOptions)` / `vary_func(..)` | `vary` with pinned values, or over raw numbers that a function turns into a state. |
-| `substate(lens, spec)` | Runs a spec for part of the state through a `Lens`. |
-| `react_to(getter, build)` | Recompiles a child spec whenever the getter's value changes. |
-| `along_axis(f)` / `around_axis(f)` / `across_plane(f)` | Value operators for 3D drags that need no solver: the distance along an axis, the angle around a plane's normal, or the offset across a plane is handed to `f` to build the new state. `.snap(Snap::step(s).within(r))` pulls the preview smoothly onto the nearest step and commits the exact step on release. |
-| `drop_target(..)` / `drop_target_with_bounds(..)` | Id-based drop zones, for example a trash bin; the second measures the target in a state you choose. |
-| `switch_to_state_and_follow(..)` | Switches state at the start of a drag, for example to create an item from a toolbar. |
-| `.with_floating()` / `.with_floating_options(FloatingOptions)` | The dragged node follows the pointer while the others preview the drop; the options add a ghost at the drop position and a tether on the float. |
-| `.when_far(background, gap)` | Switches to another behavior when the pointer is far from every target. |
-| `.with_snap_radius(r)` / `.with_snap_radius_options(r, SnapOptions)` | Settles into a target once the pointer is within `r`; the options blend the change over a transition and chain into a new drag once snapped. |
-| `.on_drop(state)` / `.on_drop_with(f)` | Rewrites the state that is committed on release. |
-| `.with_branch_transition(seconds)` | Animates the change of branch during a drag. |
-| `.with_drop_transition(seconds)` | Sets how long the settle animation after a drop takes. |
-| `.with_chaining()` / `.with_chaining_options(..)` | Continues the drag from the new state as soon as the drop state changes, so one drag can cross many states. |
-| `.with_overlay(f)` | Draws extra, non-draggable nodes above the preview while the spec is active. |
-| `.during(f)` | Transforms the drop state on every frame and previews the result (`on_drop_with` that also changes the preview). |
-| `.change_gap(f)` / `.change_result(f)` / `.change_frame(f)` | Rewrites the reported gap, the whole frame, or the pointer position before it reaches the inner spec. |
-| `.with_init_context(f)` | Changes the `DragContext` (dragged node, start state) before the inner spec compiles. |
-| `custom(compile)` | Defines a behavior from scratch; the counterpart of Dragology's `custom` and the same as `DragSpec::new`. |
-| `button(radius)` | Activates on a click within `radius` of the node, like a press-and-release with no movement. |
+behavior, so they compose. See the rustdoc in [`ops`](bevy_composable_dragging::ops) for the full
+list: `state`, `between`, `closest`, `vary`, `substate`, `react_to`, `along_axis`, `around_axis`,
+`across_plane`, `drop_target`, `switch_to_state_and_follow`, `custom`, `button`, and the builder
+methods `.with_floating`, `.when_far`, `.with_snap_radius`, `.on_drop`, `.with_chaining`,
+`.with_overlay`, `.during`, `.change_gap`, `.change_result`, `.change_frame`, and
+`.with_init_context`.
 
 ## Drag spaces and transforms
 
@@ -177,7 +163,7 @@ deliberate:
   operators and `Gizmo` build on that. `Geometry::Grad` takes any `bevy_gradmesh` shape where
   Dragology draws SVG elements; text, filters and drop shadows have no counterpart.
 - **Blending of different point counts.** Dragology morphs paths with different segment counts;
-  `bevy_gradmesh` 0.2.7 resamples polygons of different lengths in `Shape::lerp`, so tiles that
+  `bevy_gradmesh` 0.3 resamples polygons of different lengths in `Shape::lerp`, so tiles that
   change their number of sides morph here too. Shapes of different kinds still come from the
   nearer state.
 - **Not ported:** the SVG and React layer, the tree and path utilities, the studio and benchmark
@@ -204,6 +190,8 @@ The test cases of Dragology's `closest.test.tsx`, `userOps.test.tsx`, `math/dela
 | `chain_of_cells`: `with_chaining`, overlay underline, drop transition | `blend_square`: `between_with` natural neighbor and sharpness | `tactile_tessellations`: edge-to-edge snaps with rotation |
 | ![gizmo_3d](https://raw.githubusercontent.com/xenacool/bevy_composable_dragging/main/screenshots/screenshot_gizmo_3d.webp) | ![cozy_castle](https://raw.githubusercontent.com/xenacool/bevy_composable_dragging/main/screenshots/screenshot_cozy_castle_menu.webp) | ![kart_racer_editor](https://raw.githubusercontent.com/xenacool/bevy_composable_dragging/main/screenshots/screenshot_kart_racer_editor_menu.webp) |
 | `gizmo_3d`: translate, rotate and scale gizmos in 3D drag spaces | `cozy_castle`: terrain, walls and radial menu | `kart_racer_editor`: track editor with sweep road and heightfield |
+| ![physics_lab](https://raw.githubusercontent.com/xenacool/bevy_composable_dragging/main/screenshots/screenshot_physics_lab.webp) | ![cozy_castle](https://raw.githubusercontent.com/xenacool/bevy_composable_dragging/main/screenshots/screenshot_cozy_castle.webp) | ![kart_racer_editor](https://raw.githubusercontent.com/xenacool/bevy_composable_dragging/main/screenshots/screenshot_kart_racer_editor.webp) |
+| `physics_lab`: 3D physics shapes dragged onto a grid, simulated with avian | `cozy_castle`: empty ground before building | `kart_racer_editor`: track view without menu |
 
 `tessellations` snaps tiles to a grid and shows a toolbar and chaining, while `tactile_tessellations` is a port of Dragology's demo of the same name: regular polygons that snap edge to edge with rotation, `closest` with `when_far`, a palette and a trash bin.
 
@@ -213,7 +201,7 @@ The test cases of Dragology's `closest.test.tsx`, `userOps.test.tsx`, `math/dela
 
 | Feature | Description |
 |---|---|
-| `gradmesh` | Adds `Geometry::Grad(Shape)`: any [`bevy_gradmesh`](https://github.com/xenacool/bevy_gradmesh) 0.2.7 shape, 2D or 3D, as the geometry of a node (`ViewNode::grad`, `sphere`, `cuboid`, `cylinder`, `cone`, `torus`, `disc`, `ring`, `star`). Meshes are cached by shape, nodes are picked by the real bounds of the shape, and blending two views morphs matching shapes with `Shape::lerp` and their gradient `Style`s with `Style::lerp`. `ViewNode::with_style` gives a node its own gradient. |
+| `gradmesh` | Adds `Geometry::Grad(Shape)`: any [`bevy_gradmesh`](https://github.com/xenacool/bevy_gradmesh) 0.3 shape, 2D or 3D, as the geometry of a node (`ViewNode::grad`, `sphere`, `cuboid`, `cylinder`, `cone`, `torus`, `disc`, `ring`, `star`). Meshes are cached by shape, nodes are picked by the real bounds of the shape, and blending two views morphs matching shapes with `Shape::lerp` and their gradient `Style`s with `Style::lerp`. `ViewNode::with_style` gives a node its own gradient. |
 | `pbr` | `Geometry::Mesh(MeshGeometry)` (`ViewNode::mesh`) draws a mesh you generate yourself, such as terrain. A `MeshGeometry` is a mesh with a `key`: equal keys are the same geometry and share one mesh asset, so give an edited mesh a new key. Bounds are measured from the positions once, picking uses them, and a blend takes the nearer of two meshes. With `gradmesh` it is drawn with the gradient material (give it positions, normals, `UV_0` and optionally vertex colors); it is a stopgap for `bevy_gradmesh` shapes built from meshes. |
 | `shapes-3d` | Enables `gradmesh`; the name of the 3D examples. |
 | `shapes-2d` | Enables `gradmesh`; the name of the flat examples. They use `DraggablePlugin::with_rendering(Rendering::Flat)`, which draws every node as a `Mesh2d` with an unlit 2D material under a `Camera2d`. The default `Rendering::Spatial` draws `Mesh3d` entities under a `Camera3d`; any `Geometry` works in both, with the same drags and picking, and single nodes can pick their own mode (see *Rendering modes and a HUD*). |

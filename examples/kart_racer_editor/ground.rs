@@ -83,24 +83,81 @@ fn length(count: isize) -> f32 {
     count as f32
 }
 
+/// A whole number of chunks from a count that was rounded up.
+#[allow(
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    reason = "a count of chunks, which is at least one"
+)]
+fn count(chunks: f32) -> usize {
+    chunks.max(1.0) as usize
+}
+
+/// The grid of a square of ground `2 * half` wide around `middle`, of `across` x `across` chunks.
+fn square(middle: Vec2, half: f32, across: usize) -> Grid {
+    let across = across.max(1);
+    let vertices = length((across * SIDE).cast_signed() - 1);
+    Grid::new(
+        UVec2::splat(u32::try_from(across).unwrap_or(u32::MAX)),
+        SIDE,
+        middle - Vec2::splat(half),
+        half * 2.0 / vertices,
+    )
+}
+
 impl Ground {
     /// Flat ground at height `base`, a square `2 * half` wide around `middle`, of `across` x
     /// `across` chunks.
     pub fn new(middle: Vec2, half: f32, across: usize, base: f32) -> Self {
-        let across = across.max(1);
         let half = half.abs().max(f32::MIN_POSITIVE);
-        let vertices = length((across * SIDE).cast_signed() - 1);
+        let grid = square(middle, half, across);
         let relief = half * RELIEF_SHARE;
-        let chunks = UVec2::splat(u32::try_from(across).unwrap_or(u32::MAX));
-        let grid = Grid::new(
-            chunks,
-            SIDE,
-            middle - Vec2::splat(half),
-            half * 2.0 / vertices,
-        );
         Self {
             map: Heightmap::new(grid, base, base - relief, base + relief),
             middle,
+            half,
+        }
+    }
+
+    /// This ground grown to cover the square of half-width `half` around `middle` as well. Chunks
+    /// are added on the lattice of the grid it has, so the cells keep their size and the hills
+    /// and holes stay exactly where they are; the land that is new is flat. The ground never
+    /// shrinks: a square that it already covers leaves it as it is.
+    #[must_use]
+    pub fn grown_to(&self, middle: Vec2, half: f32) -> Self {
+        let grid = *self.map.grid();
+        let extent = self.map.chunk_extent().x;
+        let (own_low, own_high) = (
+            self.middle - Vec2::splat(self.half),
+            self.middle + Vec2::splat(self.half),
+        );
+        let (low, high) = (
+            own_low.min(middle - Vec2::splat(half)),
+            own_high.max(middle + Vec2::splat(half)),
+        );
+        if low == own_low && high == own_high {
+            return self.clone();
+        }
+        let before = ((grid.origin - low) / extent).ceil().max(Vec2::ZERO);
+        let origin = grid.origin - before * extent;
+        let across = ((high - origin) / extent).ceil().max_element().max(1.0);
+        let chunks = count(across);
+        let width = length((chunks * SIDE).cast_signed() - 1) * grid.pitch;
+        let half = width / 2.0;
+        let relief = half * RELIEF_SHARE;
+        let base = self.base();
+        Self {
+            map: self.map.resampled(
+                Grid::new(
+                    UVec2::splat(u32::try_from(chunks).unwrap_or(u32::MAX)),
+                    SIDE,
+                    origin,
+                    grid.pitch,
+                ),
+                base - relief,
+                base + relief,
+            ),
+            middle: origin + Vec2::splat(half),
             half,
         }
     }
@@ -173,6 +230,12 @@ impl Ground {
             .filter(|point| self.map.contains(point.xz()))
     }
 
+    /// Where the middle of chunk `chunk` is on the ground plane, at height zero: the mesh of a
+    /// chunk is centred on its own origin and stands there.
+    pub fn chunk_center(&self, chunk: usize) -> Vec3 {
+        self.map.chunk_center(chunk)
+    }
+
     /// The shape of chunk `chunk`: a heightfield with holes where the ground is cut out.
     /// Returns `None` only if every cell is a hole, so there is nothing to draw.
     pub fn chunk_shape(&self, chunk: usize) -> Option<Shape> {
@@ -184,13 +247,11 @@ impl Ground {
         }
         let size = UVec2::splat(u32::try_from(SIDE + 1).unwrap_or(u32::MAX));
         let extent = self.chunk_extent();
-        let key = self.chunk_key(chunk);
         let options = HeightfieldOptions::default().with_holes(holes);
         Some(Shape::heightfield_with_options(
             Arc::from(heights.as_slice()),
             size,
             extent,
-            key,
             options,
         ))
     }
@@ -255,6 +316,27 @@ mod tests {
     }
 
     #[test]
+    fn ground_grows_over_a_square_it_does_not_cover_and_keeps_what_it_has() {
+        let hill = Vec2::new(30.0, 20.0);
+        let ground = flat().raised(&mound(hill, 4.0));
+        let covered = ground.grown_to(Vec2::new(10.0, 0.0), 50.0);
+        assert_eq!(covered, ground, "a square it covers leaves it as it is");
+        let target = Vec2::new(300.0, -250.0);
+        let grown = ground.grown_to(target, 40.0);
+        assert!(grown.contains(target + Vec2::splat(40.0)));
+        assert!(grown.contains(Vec2::splat(-96.0)) && grown.contains(Vec2::splat(96.0)));
+        assert!(grown.half() > ground.half());
+        assert!((grown.surface(hill) - ground.surface(hill)).abs() < 1e-4);
+        assert!(holds(&grown, target, BASE));
+        assert!(grown.relief() > ground.relief());
+        assert!(grown.chunk_count() > ground.chunk_count());
+        assert!(
+            (grown.pitch() - ground.pitch()).abs() < 1e-6,
+            "the cells keep their size"
+        );
+    }
+
+    #[test]
     fn the_cells_are_the_width_of_the_ground_over_its_vertices() {
         let ground = Ground::new(Vec2::new(40.0, -10.0), 50.0, 4, 2.0);
         assert!((ground.pitch() * 63.0 - 100.0).abs() < 1e-4);
@@ -314,7 +396,7 @@ mod tests {
     fn a_chunk_shape_has_its_vertices_and_two_triangles_for_every_cell() {
         let ground = flat();
         let mesh = ground.chunk_shape(0).unwrap().build();
-        // The heightfield surface has (SIDE+1)² vertices and SIDE*SIDE*2 triangles;
+        // The heightfield surface has (SIDE+1)^2 vertices and SIDE*SIDE*2 triangles;
         // gradmesh adds a skirt below each edge, so the totals are larger.
         let surface_vertices = (SIDE + 1) * (SIDE + 1);
         let surface_triangles = SIDE * SIDE * 2;

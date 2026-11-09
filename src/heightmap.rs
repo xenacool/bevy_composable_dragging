@@ -140,6 +140,42 @@ impl Heightmap {
         }
     }
 
+    /// This ground laid over another `grid`, which brushes keep between `lowest` and `highest`
+    /// from now on: every vertex takes the height of the surface under it, and every cell keeps
+    /// the hole mask of the cell under its middle. What `grid` covers beyond this ground is flat
+    /// at its base height with no holes, so the ground can be grown by laying it over a larger
+    /// grid, or cropped by laying it over a smaller one. A grid with a different pitch smooths
+    /// or sharpens the relief to what its vertices can hold.
+    #[must_use]
+    pub fn resampled(&self, grid: Grid, lowest: f32, highest: f32) -> Self {
+        let mut map = Self::new(grid, self.base, lowest, highest);
+        let side = grid.side;
+        let across = grid.chunks.x as usize;
+        let cell_middle = Vec2::splat(grid.pitch / 2.0);
+        for (index, slot) in map.chunks.iter_mut().enumerate() {
+            let (x0, z0) = (index % across * side, index / across * side);
+            let mut chunk = Chunk {
+                heights: Vec::with_capacity(side * side),
+                holes: Vec::with_capacity(side * side),
+            };
+            for z in z0..z0 + side {
+                for x in x0..x0 + side {
+                    let at = grid.origin
+                        + Vec2::new(length(x.cast_signed()), length(z.cast_signed())) * grid.pitch;
+                    let height = if self.contains(at) {
+                        self.surface(at)
+                    } else {
+                        self.base
+                    };
+                    chunk.heights.push(height.clamp(map.lowest, map.highest));
+                    chunk.holes.push(self.is_hole(at + cell_middle));
+                }
+            }
+            *slot = Arc::new(chunk);
+        }
+        map
+    }
+
     /// The shape of the grid.
     #[must_use]
     pub fn grid(&self) -> &Grid {
@@ -752,6 +788,37 @@ mod tests {
         assert!(
             map.hit(Ray3d::new(Vec3::new(0.0, 1.0, 3.0), Dir3::X))
                 .is_none()
+        );
+    }
+
+    #[test]
+    fn laying_the_ground_over_a_larger_grid_keeps_its_hills_and_holes_and_is_flat_beyond() {
+        let hill = Vec2::new(1.0, 3.0);
+        let pit = Vec2::new(1.5, 4.0);
+        let map = flat().raised(&mound(hill, 1.0)).with_holes(pit, 0.3, true);
+        let grid = Grid::new(UVec2::new(4, 4), 8, Vec2::new(-3.0, 0.0), 0.25);
+        let grown = map.resampled(grid, -2.0, 5.0);
+        assert_eq!((grown.lowest(), grown.highest()), (-2.0, 5.0));
+        assert!((grown.surface(hill) - map.surface(hill)).abs() < 1e-4);
+        assert!(grown.is_hole(pit) && !grown.is_hole(Vec2::new(-2.0, 0.5)));
+        for outside in [Vec2::new(-2.5, 0.5), Vec2::new(4.0, 7.0)] {
+            assert!(
+                (grown.surface(outside) - map.base()).abs() < 1e-6,
+                "{outside}"
+            );
+        }
+    }
+
+    #[test]
+    fn laying_the_ground_over_a_smaller_grid_crops_it() {
+        let hill = Vec2::new(1.0, 3.0);
+        let map = flat().raised(&mound(hill, 1.0));
+        let grid = Grid::new(UVec2::ONE, 8, Vec2::new(0.0, 2.5), 0.25);
+        let cropped = map.resampled(grid, map.lowest(), 0.8);
+        assert!(cropped.contains(hill) && !cropped.contains(Vec2::new(-0.5, 3.0)));
+        assert!(
+            (cropped.surface(hill) - 0.8).abs() < 1e-4,
+            "kept within the limits"
         );
     }
 

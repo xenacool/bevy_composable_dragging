@@ -797,7 +797,18 @@ fn an_empty_editor_has_its_menu_and_every_tool_but_the_drive_waits_for_a_track()
 fn a_track_is_laid_down_by_pressing_the_ground_with_insert_and_then_driven() {
     let mut harness = empty_harness();
     use_tool(&mut harness, Tool::Insert, None);
-    let corners = [(-40.0, -40.0), (40.0, -40.0), (40.0, 40.0), (-40.0, 40.0)];
+    // Around a circle that is wide enough to drive once it has enough points. A loop of only a few
+    // points is too sharp at its corners, and the editor does not shrink it until it is not.
+    let corners = [
+        (55.0, 0.0),
+        (39.0, 39.0),
+        (0.0, 55.0),
+        (-39.0, 39.0),
+        (-55.0, 0.0),
+        (-39.0, -39.0),
+        (0.0, -55.0),
+        (39.0, -39.0),
+    ];
     for (index, (x, z)) in corners.into_iter().enumerate() {
         let pixel = harness.scene_point(Vec3::new(x, GROUND_HEIGHT, z));
         press_and_release(&mut harness, pixel);
@@ -810,14 +821,20 @@ fn a_track_is_laid_down_by_pressing_the_ground_with_insert_and_then_driven() {
             "{index}: {placed}"
         );
         assert_eq!(editor.selected, Some(index), "the new point is selected");
-        let drivable = index + 1 >= MIN_POINTS;
-        assert_eq!(editor.error().is_none(), drivable, "{index}");
+        if index + 1 < MIN_POINTS {
+            assert!(editor.error().is_some(), "{index}: too few points");
+        }
         assert_eq!(
             harness.app.world().contains_resource::<BakedTrack>(),
-            drivable,
-            "the road is built once the track can be driven"
+            editor.error().is_none(),
+            "{index}: the road is built once the track can be driven"
         );
     }
+    assert_eq!(
+        harness.state().error(),
+        None,
+        "the finished loop can be driven"
+    );
     let open = harness.state().with_menu(Some(Ring::Tools));
     harness.show(open);
     harness.click(&petal_id::<Editor>(&Ring::Tools, &Item::Tool(Tool::Drive)));

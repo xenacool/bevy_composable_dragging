@@ -104,15 +104,13 @@ impl Terrain {
     }
 }
 
-/// The height field of chunk `chunk`: its vertices and the edge it shares with each neighbour,
-/// keyed by everything it is built from.
+/// The height field of chunk `chunk`: its vertices and the edge it shares with each neighbour.
 fn build_shape(map: &Heightmap, chunk: usize) -> Shape {
     let vertices = u32::try_from(map.grid().side + 1).unwrap_or(u32::MAX);
     Shape::heightfield(
         Arc::from(map.chunk_heights(chunk)),
         UVec2::splat(vertices),
         map.chunk_extent(),
-        map.chunk_key(chunk),
     )
 }
 
@@ -416,7 +414,11 @@ mod tests {
         assert_eq!(a.shapes()[0], b.shapes()[0]);
         b.apply(&mound(Vec2::new(0.8, 0.8), 0.1));
         assert_ne!(a.shapes()[0], b.shapes()[0]);
-        assert_ne!(flat().shapes()[0], flat().shapes()[1]);
+        assert_eq!(
+            flat().shapes()[0],
+            flat().shapes()[1],
+            "every chunk is centred on the origin, so flat chunks are the same shape"
+        );
     }
 
     #[test]

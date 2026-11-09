@@ -6,3 +6,7 @@ Cargo.lock
 .vscode/
 # Animation frames are intermediate PNG captures, encoded to WebP by the Makefile.
 frames/
+# Property fuzz failures are kept outside target/ so cargo clean does not wipe them.
+fuzz-logs/
+# mdBook build output
+book/book
