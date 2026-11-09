@@ -68,6 +68,28 @@ fn view(token: &Token) -> View<Token> {
     )
 }
 
+
+/// Run this example. Called by the WASM runner.
+pub fn run(app: &mut App) {
+    app
+        .add_plugins(common::default_plugins("chain_of_cells"))
+        .add_plugins(DraggablePlugin::new(Token(0), view))
+        .add_plugins(ScriptedDragPlugin::straight(
+            cell_position(0),
+            cell_position(5),
+        ))
+        .add_plugins(
+            AutoScreenshotPlugin::new("screenshot_chain_of_cells.webp")
+                .with_title("chain_of_cells")
+                .with_description("with_chaining + overlay")
+                .animation(600),
+        )
+        .add_systems(Startup, |mut commands: Commands| {
+            common::spawn_cameras(&mut commands, 6.0);
+        })
+        ;
+}
+
 fn main() {
     App::new()
         .add_plugins(common::default_plugins("chain_of_cells"))

@@ -82,6 +82,33 @@ fn view(state: &Clock) -> View<Clock> {
         )
 }
 
+
+/// Run this example. Called by the WASM runner.
+pub fn run(app: &mut App) {
+    app
+let start = Clock { hours: 10.0 };
+    let from = hour_angle(start.hours);
+    App::new()
+        .add_plugins(common::default_plugins("clock"))
+        .add_plugins(DraggablePlugin::new(start, view))
+        .add_plugins(ScriptedDragPlugin::arc(
+            Vec2::ZERO,
+            HOUR_LENGTH,
+            from,
+            from - TAU * 0.2,
+        ))
+        .add_plugins(
+            AutoScreenshotPlugin::new("screenshot_clock.webp")
+                .with_title("clock")
+                .with_description("vary one number")
+                .animation(600),
+        )
+        .add_systems(Startup, |mut commands: Commands| {
+            common::spawn_cameras(&mut commands, 6.0);
+        })
+        ;
+}
+
 fn main() {
     let start = Clock { hours: 10.0 };
     let from = hour_angle(start.hours);

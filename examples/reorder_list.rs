@@ -43,6 +43,28 @@ fn view(order: &Order) -> View<Order> {
     view
 }
 
+
+/// Run this example. Called by the WASM runner.
+pub fn run(app: &mut App) {
+    app
+        .add_plugins(common::default_plugins("reorder_list"))
+        .add_plugins(DraggablePlugin::new(Order((0..ITEMS).collect()), view))
+        .add_plugins(ScriptedDragPlugin::straight(
+            slot_position(0),
+            slot_position(3) + Vec2::new(0.6, 0.1),
+        ))
+        .add_plugins(
+            AutoScreenshotPlugin::new("screenshot_reorder_list.webp")
+                .with_title("reorder_list")
+                .with_description("closest + floating")
+                .animation(600),
+        )
+        .add_systems(Startup, |mut commands: Commands| {
+            common::spawn_cameras(&mut commands, 7.0);
+        })
+        ;
+}
+
 fn main() {
     App::new()
         .add_plugins(common::default_plugins("reorder_list"))

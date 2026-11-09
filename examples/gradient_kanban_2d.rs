@@ -124,6 +124,34 @@ fn view(board: &Board) -> View<Board> {
     view
 }
 
+
+/// Run this example. Called by the WASM runner.
+pub fn run(app: &mut App) {
+    app
+let board = Board {
+        columns: [vec![0, 1, 2], vec![3, 4], vec![5]],
+    };
+    let from =
+        position_of(&board, 1).map_or(Vec2::ZERO, |(column, slot)| slot_position(column, slot));
+    App::new()
+        .add_plugins(common::default_plugins("gradient_kanban_2d"))
+        .add_plugins(DraggablePlugin::new(board, view).with_rendering(Rendering::Flat))
+        .add_plugins(ScriptedDragPlugin::straight(
+            from,
+            slot_position(1, 1) + Vec2::new(0.3, 0.45),
+        ))
+        .add_plugins(
+            AutoScreenshotPlugin::new("screenshot_gradient_kanban_2d.webp")
+                .with_title("gradient_kanban_2d")
+                .with_description(TITLES.join(" | "))
+                .animation(600),
+        )
+        .add_systems(Startup, |mut commands: Commands| {
+            common::spawn_cameras_2d(&mut commands, 8.0);
+        })
+        ;
+}
+
 fn main() {
     let board = Board {
         columns: [vec![0, 1, 2], vec![3, 4], vec![5]],

@@ -225,6 +225,34 @@ fn view(scene: &Scene) -> View<Scene> {
     view
 }
 
+
+/// Run this example. Called by the WASM runner.
+pub fn run(app: &mut App) {
+    app
+let scene = Scene::initial();
+    App::new()
+        .add_plugins(common::default_plugins("gizmo_3d"))
+        .add_plugins(DraggablePlugin::new(scene, view))
+        .add_plugins(ScriptedDragPlugin::straight(
+            Vec2::new(PIVOT.x + 0.85, PIVOT.y),
+            Vec2::new(PIVOT.x + 2.3, PIVOT.y),
+        ))
+        .add_plugins(
+            AutoScreenshotPlugin::new("screenshot_gizmo_3d.webp")
+                .with_title("gizmo_3d")
+                .with_description("transform gizmos in 3D drag spaces")
+                .animation(600),
+        )
+        .add_systems(Startup, |mut commands: Commands| {
+            common::spawn_perspective_scene(
+                &mut commands,
+                Vec3::new(0.0, 3.4, 9.5),
+                Vec3::new(0.0, 1.2, 0.0),
+            );
+        })
+        ;
+}
+
 fn main() {
     let scene = Scene::initial();
     App::new()

@@ -51,6 +51,28 @@ fn view(ring: &Ring) -> View<Ring> {
     view
 }
 
+
+/// Run this example. Called by the WASM runner.
+pub fn run(app: &mut App) {
+    app
+        .add_plugins(common::default_plugins("ring_of_beads"))
+        .add_plugins(DraggablePlugin::new(Ring((0..BEADS).collect()), view))
+        .add_plugins(ScriptedDragPlugin::straight(
+            slot_position(0),
+            slot_position(3) * 1.25,
+        ))
+        .add_plugins(
+            AutoScreenshotPlugin::new("screenshot_ring_of_beads.webp")
+                .with_title("ring_of_beads")
+                .with_description("closest on a ring")
+                .animation(600),
+        )
+        .add_systems(Startup, |mut commands: Commands| {
+            common::spawn_cameras(&mut commands, 6.0);
+        })
+        ;
+}
+
 fn main() {
     App::new()
         .add_plugins(common::default_plugins("ring_of_beads"))

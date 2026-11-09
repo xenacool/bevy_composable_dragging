@@ -132,6 +132,58 @@ fn view(schedule: &Schedule) -> View<Schedule> {
     view
 }
 
+
+/// Run this example. Called by the WASM runner.
+pub fn run(app: &mut App) {
+    app
+let schedule = Schedule {
+        meetings: vec![
+            Meeting {
+                lane: 0,
+                start: 1.0,
+                end: 3.0,
+            },
+            Meeting {
+                lane: 0,
+                start: 5.0,
+                end: 8.0,
+            },
+            Meeting {
+                lane: 1,
+                start: 2.0,
+                end: 4.5,
+            },
+            Meeting {
+                lane: 2,
+                start: 0.5,
+                end: 2.5,
+            },
+            Meeting {
+                lane: 2,
+                start: 6.0,
+                end: 9.0,
+            },
+        ],
+    };
+    App::new()
+        .add_plugins(common::default_plugins("scheduler"))
+        .add_plugins(DraggablePlugin::new(schedule, view))
+        .add_plugins(ScriptedDragPlugin::straight(
+            Vec2::new(hour_x(3.25), lane_y(1)),
+            Vec2::new(hour_x(4.3), lane_y(2) + 0.15),
+        ))
+        .add_plugins(
+            AutoScreenshotPlugin::new("screenshot_scheduler.webp")
+                .with_title("scheduler")
+                .with_description("closest + vary")
+                .animation(600),
+        )
+        .add_systems(Startup, |mut commands: Commands| {
+            common::spawn_cameras(&mut commands, 6.0);
+        })
+        ;
+}
+
 fn main() {
     let schedule = Schedule {
         meetings: vec![

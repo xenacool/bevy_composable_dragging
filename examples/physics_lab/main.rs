@@ -202,6 +202,26 @@ fn lab(app: &mut App) -> &mut App {
         .add_systems(FixedUpdate, drive_held)
 }
 
+
+/// Run this example. Called by the WASM runner.
+pub fn run(app: &mut App) {
+    app
+let mut app = App::new();
+    app.add_plugins(common::default_plugins("physics_lab"));
+    lab(&mut app)
+        .add_plugins(ScriptedDragPlugin::straight(
+            Vec2::new(-7.7, 0.5),
+            Vec2::new(0.0, 2.6),
+        ))
+        .add_plugins(
+            AutoScreenshotPlugin::new("screenshot_physics_lab.webp")
+                .with_title("physics_lab")
+                .with_description("3D physics shapes dragged onto a grid, simulated with avian")
+                .animation(600),
+        )
+        ;
+}
+
 fn main() {
     let mut app = App::new();
     app.add_plugins(common::default_plugins("physics_lab"));

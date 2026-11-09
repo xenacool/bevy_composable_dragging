@@ -66,6 +66,28 @@ fn view(state: &Choice) -> View<Choice> {
     )
 }
 
+
+/// Run this example. Called by the WASM runner.
+pub fn run(app: &mut App) {
+    app
+        .add_plugins(common::default_plugins("three_way"))
+        .add_plugins(DraggablePlugin::new(Choice::Red, view))
+        .add_plugins(ScriptedDragPlugin::straight(
+            Vec2::new(-2.5, 0.0),
+            Vec2::new(-0.9, 0.0),
+        ))
+        .add_plugins(
+            AutoScreenshotPlugin::new("screenshot_three_way.webp")
+                .with_title("three_way")
+                .with_description("between: three targets")
+                .animation(600),
+        )
+        .add_systems(Startup, |mut commands: Commands| {
+            common::spawn_cameras(&mut commands, 5.0);
+        })
+        ;
+}
+
 fn main() {
     App::new()
         .add_plugins(common::default_plugins("three_way"))

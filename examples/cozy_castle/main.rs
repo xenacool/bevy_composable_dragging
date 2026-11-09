@@ -497,6 +497,24 @@ fn spawn_banner_camera(mut commands: Commands) {
     ));
 }
 
+
+/// Run this example. Called by the WASM runner.
+pub fn run(app: &mut App) {
+    app
+let mut app = App::new();
+    app.add_plugins(common::default_plugins("cozy_castle"));
+    castle(&mut app)
+        .add_systems(Startup, spawn_banner_camera)
+        .add_plugins(TourPlugin::new(tour))
+        .add_plugins(
+            AutoScreenshotPlugin::new("screenshot_cozy_castle.webp")
+                .with_title("cozy_castle")
+                .with_description("menu, stacks, arches")
+                .animation(MAX_FRAMES),
+        )
+        ;
+}
+
 fn main() {
     let mut app = App::new();
     app.add_plugins(common::default_plugins("cozy_castle"));

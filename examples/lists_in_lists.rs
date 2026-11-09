@@ -360,6 +360,28 @@ fn initial_canvas() -> Canvas {
     }
 }
 
+
+/// Run this example. Called by the WASM runner.
+pub fn run(app: &mut App) {
+    app
+        .add_plugins(common::default_plugins("lists_in_lists"))
+        .add_plugins(DraggablePlugin::new(initial_canvas(), view))
+        .add_plugins(ScriptedDragPlugin::straight(
+            Vec2::new(-4.2, 1.5),
+            Vec2::new(-1.7, 1.45),
+        ))
+        .add_plugins(
+            AutoScreenshotPlugin::new("screenshot_lists_in_lists.webp")
+                .with_title("lists_in_lists")
+                .with_description("closest + when_far + overlay, rows nested to any depth")
+                .animation(600),
+        )
+        .add_systems(Startup, |mut commands: Commands| {
+            common::spawn_cameras(&mut commands, 7.0);
+        })
+        ;
+}
+
 fn main() {
     App::new()
         .add_plugins(common::default_plugins("lists_in_lists"))

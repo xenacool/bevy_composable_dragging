@@ -150,6 +150,40 @@ fn view(board: &Board) -> View<Board> {
     view
 }
 
+
+/// Run this example. Called by the WASM runner.
+pub fn run(app: &mut App) {
+    app
+let tiles = [(0, 0), (1, 1), (5, 2), (7, 0), (11, 1), (12, 2)]
+        .iter()
+        .enumerate()
+        .map(|(id, &(cell, kind))| Tile {
+            id,
+            kind,
+            cell: Some(cell),
+            position: Vec2::ZERO,
+        })
+        .collect();
+    let board = Board { tiles, next_id: 6 };
+    App::new()
+        .add_plugins(common::default_plugins("tessellations"))
+        .add_plugins(DraggablePlugin::new(board, view))
+        .add_plugins(ScriptedDragPlugin::straight(
+            tool_position(0),
+            cell_position(13) + Vec2::new(0.4, 0.3),
+        ))
+        .add_plugins(
+            AutoScreenshotPlugin::new("screenshot_tessellations.webp")
+                .with_title("tessellations")
+                .with_description("toolbar + bin")
+                .animation(600),
+        )
+        .add_systems(Startup, |mut commands: Commands| {
+            common::spawn_cameras(&mut commands, 7.0);
+        })
+        ;
+}
+
 fn main() {
     let tiles = [(0, 0), (1, 1), (5, 2), (7, 0), (11, 1), (12, 2)]
         .iter()
