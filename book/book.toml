@@ -6,6 +6,7 @@ language = "en"
 src = "src"
 
 [output.html]
+site-url = "/bevy_composable_dragging/"
 git-repository-url = "https://github.com/xenacool/bevy_composable_dragging"
 edit-url-template = "https://github.com/xenacool/bevy_composable_dragging/edit/main/book/{path}"
 

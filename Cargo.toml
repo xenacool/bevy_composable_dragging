@@ -13,6 +13,13 @@ exclude = ["screenshots/", "reference/", "target/", "Cargo.lock", "Makefile", "b
 [profile.dev]
 codegen-units = 8
 
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
+
 [lints.rust]
 # Bevy example binaries exceed the macOS linker's compact unwind table limit; the message is harmless.
 linker_messages = "allow"
