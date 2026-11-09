@@ -7,13 +7,13 @@ Add `bevy_composable_dragging` to your `Cargo.toml`:
 ```toml
 [dependencies]
 bevy = "0.20"
-bevy_composable_dragging = { version = "0.1", features = ["pbr"] }
+bevy_composable_dragging = { version = "0.3", features = ["pbr"] }
 ```
 
 The `pbr` feature enables 3D scenes with PBR materials and mesh picking. For gradient shapes, add `shapes-3d` or `shapes-2d`:
 
 ```toml
-bevy_composable_dragging = { version = "0.1", features = ["shapes-3d"] }
+bevy_composable_dragging = { version = "0.3", features = ["shapes-3d"] }
 ```
 
 ## Your First Draggable Interface
