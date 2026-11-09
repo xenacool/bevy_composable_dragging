@@ -13,3 +13,4 @@
 - [Radial Menus](./radial.md)
 - [App Content](./app-content.md)
 - [Advanced Topics](./advanced.md)
+- [Migrating from 0.2 to 0.3](./migrating.md)

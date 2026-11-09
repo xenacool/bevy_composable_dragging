@@ -1,6 +1,6 @@
 [package]
 name = "bevy_composable_dragging"
-version = "0.3.0" # Don't forget to update README.md and book/
+version = "0.3.2" # Must always aligned with bevy_gradmesh. Don't forget to update README.md and book/
 authors = ["Jessica Collins (https://github.com/xenacool)"]
 edition = "2024"
 rust-version = "1.87"
@@ -46,7 +46,7 @@ shapes-3d = ["gradmesh"]
 
 [dependencies]
 bevy = { version = "0.20", default-features = false, features = ["bevy_color", "bevy_scene"] }
-bevy_gradmesh = { version = "0.3.1", optional = true }
+bevy_gradmesh = { version = "0.3.2", optional = true }
 
 # Examples need windowing, tonemapping LUT textures and PNG support which the library does not require.
 [dev-dependencies]
