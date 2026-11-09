@@ -1,7 +1,5 @@
 //! The `change_gap`, `change_result` and `change_frame` modifiers.
 
-use std::sync::Arc;
-
 use bevy::math::Vec3;
 
 use crate::behavior::Frame;
@@ -11,7 +9,7 @@ impl<S: Clone + Send + Sync + 'static> DragSpec<S> {
     /// Changes the gap this spec reports, for example to reweight one branch of a
     /// [`closest`](crate::ops::closest): a smaller gap makes the branch win from further away.
     #[must_use]
-    pub fn change_gap(self, change: impl Fn(f32) -> f32 + Send + Sync + 'static) -> Self {
+    pub fn change_gap(self, change: impl Fn(f32) -> f32 + Clone + Send + Sync + 'static) -> Self {
         self.change_result(move |mut frame| {
             frame.gap = change(frame.gap);
             frame
@@ -23,12 +21,11 @@ impl<S: Clone + Send + Sync + 'static> DragSpec<S> {
     #[must_use]
     pub fn change_result(
         self,
-        change: impl Fn(Frame<S>) -> Frame<S> + Send + Sync + 'static,
+        change: impl Fn(Frame<S>) -> Frame<S> + Clone + Send + Sync + 'static,
     ) -> Self {
-        let change = Arc::new(change);
         Self::new(move |context| {
             let mut inner = self.compile(context);
-            let change = Arc::clone(&change);
+            let change = change.clone();
             Box::new(move |pointer| change(inner(pointer)))
         })
     }
@@ -36,11 +33,13 @@ impl<S: Clone + Send + Sync + 'static> DragSpec<S> {
     /// Remaps the pointer position (a world point in the space of the drag) before it reaches
     /// this spec, for example to scale or offset the motion of the dragged node.
     #[must_use]
-    pub fn change_frame(self, remap: impl Fn(Vec3) -> Vec3 + Send + Sync + 'static) -> Self {
-        let remap = Arc::new(remap);
+    pub fn change_frame(
+        self,
+        remap: impl Fn(Vec3) -> Vec3 + Clone + Send + Sync + 'static,
+    ) -> Self {
         Self::new(move |context| {
             let mut inner = self.compile(context);
-            let remap = Arc::clone(&remap);
+            let remap = remap.clone();
             Box::new(move |pointer| inner(pointer.moved_to(remap(pointer.point))))
         })
     }

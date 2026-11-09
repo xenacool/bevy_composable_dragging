@@ -1,25 +1,32 @@
 //! Numeric parameters of a state that `vary` can change.
 
-use std::sync::Arc;
+use crate::owned::owned_fn;
 
-type Getter<S> = dyn Fn(&S) -> f32 + Send + Sync;
-type Setter<S> = dyn Fn(&mut S, f32) + Send + Sync;
+owned_fn! {
+    /// Reads a number out of a state.
+    Getter<S>, GetterCall, (state: &S) -> f32
+}
+
+owned_fn! {
+    /// Writes a number into a state.
+    Setter<S>, SetterCall, (state: &mut S, value: f32)
+}
 
 /// A number inside a state of type `S`, addressed by a getter and a setter.
 ///
 /// Rust has no runtime field paths, so a parameter carries closures. The [`param!`](crate::param)
 /// macro builds them from a field path.
 pub struct Param<S> {
-    get: Arc<Getter<S>>,
-    set: Arc<Setter<S>>,
+    get: Getter<S>,
+    set: Setter<S>,
     scale: f32,
 }
 
 impl<S> Clone for Param<S> {
     fn clone(&self) -> Self {
         Self {
-            get: Arc::clone(&self.get),
-            set: Arc::clone(&self.set),
+            get: self.get.clone(),
+            set: self.set.clone(),
             scale: self.scale,
         }
     }
@@ -28,12 +35,12 @@ impl<S> Clone for Param<S> {
 impl<S> Param<S> {
     /// Creates a parameter from a getter and a setter.
     pub fn new(
-        get: impl Fn(&S) -> f32 + Send + Sync + 'static,
-        set: impl Fn(&mut S, f32) + Send + Sync + 'static,
+        get: impl Fn(&S) -> f32 + Clone + Send + Sync + 'static,
+        set: impl Fn(&mut S, f32) + Clone + Send + Sync + 'static,
     ) -> Self {
         Self {
-            get: Arc::new(get),
-            set: Arc::new(set),
+            get: Getter::new(get),
+            set: Setter::new(set),
             scale: 1.0,
         }
     }
@@ -49,12 +56,12 @@ impl<S> Param<S> {
 
     /// Reads the parameter from `state`.
     pub fn get(&self, state: &S) -> f32 {
-        (self.get)(state)
+        self.get.call(state)
     }
 
     /// Writes the parameter into `state`.
     pub fn set(&self, state: &mut S, value: f32) {
-        (self.set)(state, value);
+        self.set.call(state, value);
     }
 
     /// The typical magnitude of the parameter.

@@ -379,11 +379,7 @@ mod tests {
     }
 
     fn corner_frame(options: BetweenOptions, pointer: Vec2) -> Frame<Corner> {
-        let context = crate::behavior::DragContext::new(
-            std::sync::Arc::new(corner_view),
-            "item".into(),
-            Corner(0),
-        );
+        let context = crate::behavior::DragContext::new(corner_view, "item".into(), Corner(0));
         between_with((0..4).map(Corner), options).compile(&context)(Pointer::from(pointer))
     }
 

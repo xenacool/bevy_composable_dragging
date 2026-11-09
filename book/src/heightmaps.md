@@ -92,9 +92,9 @@ ViewNode::sphere("brush", 0.3)
     )
 ```
 
-![Cozy Castle](screenshots/screenshot_cozy_castle_menu.webp)
+![Kart Racer Editor](screenshots/screenshot_kart_racer_editor.webp)
 
-*Terrain editing with heightmap and radial menu. Run `cargo run --example cozy_castle_3d --features shapes-3d`.*
+*Raising hills with a heightmap, picked from a radial menu. Run `cargo run --example kart_racer_editor --features shapes-3d`.*
 
 ## Next Steps
 

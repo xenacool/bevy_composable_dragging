@@ -2,14 +2,12 @@
 
 #[cfg(feature = "pbr")]
 use std::hash::{Hash, Hasher};
-#[cfg(feature = "pbr")]
-use std::sync::Arc;
 
 use bevy::math::Vec3;
 #[cfg(feature = "pbr")]
 use bevy::mesh::VertexAttributeValues;
 #[cfg(feature = "pbr")]
-use bevy::prelude::Mesh;
+use bevy::prelude::{Assets, Handle, Mesh};
 #[cfg(feature = "gradmesh")]
 use bevy_gradmesh::Shape;
 
@@ -48,10 +46,11 @@ impl Bounds {
 
 /// A mesh made by the application, such as generated terrain, that nodes can be drawn with.
 ///
-/// The `key` says which mesh it is: two values with the same key are the same geometry, are
-/// compared and hashed by the key alone, and share one mesh asset. Give a changed mesh a new key,
-/// for example by counting the edits of what it is made from. This is a stopgap for the missing
-/// `Shape::from_mesh` of `bevy_gradmesh`.
+/// The mesh is an asset: the application adds it to `Assets<Mesh>` and the view function holds
+/// the [`Handle`], which is all a clone copies. Two values are the same geometry when their
+/// handles are the same asset, so give a changed mesh a new asset, for example by adding the
+/// rebuilt mesh when what it is made from is edited, and the old mesh is freed once no node
+/// draws it. This is a stopgap for the missing `Shape::from_mesh` of `bevy_gradmesh`.
 ///
 /// A mesh that is drawn with a gradient material (see [`Geometry::Mesh`]) needs the attributes
 /// `bevy_gradmesh` gives its own meshes: positions, normals and `UV_0`, and optionally vertex
@@ -61,43 +60,47 @@ impl Bounds {
 #[cfg(feature = "pbr")]
 #[derive(Clone, Debug)]
 pub struct MeshGeometry {
-    key: u64,
-    mesh: Arc<Mesh>,
+    handle: Handle<Mesh>,
     center: Vec3,
     half_extents: Vec3,
 }
 
 #[cfg(feature = "pbr")]
 impl MeshGeometry {
-    /// The mesh identified by `key`. Its bounds are measured from its positions once, here.
+    /// The mesh behind `handle`, whose data is `mesh`. Its bounds are measured from its
+    /// positions once, here.
     #[must_use]
-    pub fn new(key: u64, mesh: Mesh) -> Self {
-        let (center, half_extents) = measure_mesh(&mesh);
+    pub fn new(handle: Handle<Mesh>, mesh: &Mesh) -> Self {
+        let (center, half_extents) = measure_mesh(mesh);
         Self {
-            key,
-            mesh: Arc::new(mesh),
+            handle,
             center,
             half_extents,
         }
     }
 
-    /// The key that identifies the mesh.
+    /// Adds `mesh` to `meshes` and returns the geometry that draws it.
     #[must_use]
-    pub fn key(&self) -> u64 {
-        self.key
+    pub fn add(meshes: &mut Assets<Mesh>, mesh: Mesh) -> Self {
+        let (center, half_extents) = measure_mesh(&mesh);
+        Self {
+            handle: meshes.add(mesh),
+            center,
+            half_extents,
+        }
     }
 
-    /// The mesh.
+    /// The handle of the mesh.
     #[must_use]
-    pub fn mesh(&self) -> &Mesh {
-        &self.mesh
+    pub fn handle(&self) -> &Handle<Mesh> {
+        &self.handle
     }
 }
 
 #[cfg(feature = "pbr")]
 impl PartialEq for MeshGeometry {
     fn eq(&self, other: &Self) -> bool {
-        self.key == other.key
+        self.handle.id() == other.handle.id()
     }
 }
 
@@ -107,7 +110,7 @@ impl Eq for MeshGeometry {}
 #[cfg(feature = "pbr")]
 impl Hash for MeshGeometry {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        self.key.hash(state);
+        self.handle.id().hash(state);
     }
 }
 
@@ -269,9 +272,9 @@ mod tests {
     }
 
     #[cfg(feature = "pbr")]
-    fn mesh_of(key: u64, width: f32, height: f32) -> Geometry {
-        Geometry::Mesh(MeshGeometry::new(
-            key,
+    fn mesh_of(meshes: &mut Assets<Mesh>, width: f32, height: f32) -> Geometry {
+        Geometry::Mesh(MeshGeometry::add(
+            meshes,
             Mesh::from(bevy::prelude::Rectangle::new(width, height)),
         ))
     }
@@ -280,28 +283,31 @@ mod tests {
     #[test]
     #[allow(
         clippy::mutable_key_type,
-        reason = "the hash of a shape never reads the bounds it remembers"
+        reason = "the hash of a mesh never reads the bounds it remembers"
     )]
-    fn a_mesh_is_identified_by_its_key_alone() {
+    fn a_mesh_is_identified_by_its_asset_alone() {
         use std::collections::HashSet;
-        let a = mesh_of(1, 2.0, 4.0);
-        assert_eq!(a, mesh_of(1, 8.0, 8.0), "same key, same geometry");
-        assert_ne!(a, mesh_of(2, 2.0, 4.0));
-        let set: HashSet<Geometry> = [a, mesh_of(1, 1.0, 1.0), mesh_of(2, 2.0, 4.0)].into();
+        let mut meshes = Assets::<Mesh>::default();
+        let a = mesh_of(&mut meshes, 2.0, 4.0);
+        assert_eq!(a, a.clone(), "a clone is the same asset");
+        let b = mesh_of(&mut meshes, 2.0, 4.0);
+        assert_ne!(a, b, "the same data in another asset is another geometry");
+        let set: HashSet<Geometry> = [a.clone(), a, b].into();
         assert_eq!(set.len(), 2);
     }
 
     #[cfg(feature = "pbr")]
     #[test]
     fn the_bounds_of_a_mesh_are_measured_from_its_positions() {
-        let bounds = mesh_of(7, 2.0, 4.0).bounds();
+        let mut meshes = Assets::<Mesh>::default();
+        let bounds = mesh_of(&mut meshes, 2.0, 4.0).bounds();
         assert!(bounds.center.length() < 1e-6);
         assert!((bounds.half_extents.x - 1.0).abs() < 1e-6);
         assert!((bounds.half_extents.y - 2.0).abs() < 1e-6);
         assert!(bounds.half_extents.z > 0.0, "a flat mesh keeps a thickness");
         assert!(!bounds.round);
-        let empty = Geometry::Mesh(MeshGeometry::new(
-            0,
+        let empty = Geometry::Mesh(MeshGeometry::add(
+            &mut meshes,
             Mesh::new(
                 bevy::mesh::PrimitiveTopology::TriangleList,
                 bevy::asset::RenderAssetUsages::default(),
@@ -313,7 +319,11 @@ mod tests {
     #[cfg(feature = "pbr")]
     #[test]
     fn a_mesh_never_morphs_and_a_blend_takes_the_nearer_one() {
-        let (a, b) = (mesh_of(1, 1.0, 1.0), mesh_of(2, 3.0, 3.0));
+        let mut meshes = Assets::<Mesh>::default();
+        let (a, b) = (
+            mesh_of(&mut meshes, 1.0, 1.0),
+            mesh_of(&mut meshes, 3.0, 3.0),
+        );
         assert_eq!(a.lerp(&b, 0.25), a);
         assert_eq!(a.lerp(&b, 0.75), b);
         assert_eq!(a.lerp(&Geometry::Circle, 0.9), Geometry::Circle);
@@ -321,10 +331,13 @@ mod tests {
 
     #[cfg(feature = "pbr")]
     #[test]
-    fn a_mesh_geometry_exposes_its_key_and_mesh() {
-        let mesh = MeshGeometry::new(9, Mesh::from(bevy::prelude::Rectangle::new(1.0, 1.0)));
-        assert_eq!(mesh.key(), 9);
-        assert!(mesh.mesh().attribute(Mesh::ATTRIBUTE_POSITION).is_some());
+    fn a_mesh_geometry_exposes_its_handle() {
+        let mut meshes = Assets::<Mesh>::default();
+        let mesh = MeshGeometry::add(
+            &mut meshes,
+            Mesh::from(bevy::prelude::Rectangle::new(1.0, 1.0)),
+        );
+        assert!(meshes.contains(mesh.handle()));
         assert_eq!(Geometry::from(mesh.clone()), Geometry::Mesh(mesh));
     }
 

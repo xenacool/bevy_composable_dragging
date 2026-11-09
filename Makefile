@@ -1,9 +1,9 @@
 EXAMPLES = hello toggle three_way reorder_list ring_of_beads slider clock scheduler lists_in_lists tessellations chain_of_cells blend_square tactile_tessellations gizmo_3d gradient_hanoi_3d gradient_kanban_2d cozy_castle kart_racer_editor physics_lab
 
 # Examples that produce animated WebP (all except hello, which is a still WebP)
-ANIMATIONS = toggle three_way reorder_list ring_of_beads slider clock scheduler lists_in_lists tessellations chain_of_cells blend_square tactile_tessellations gizmo_3d gradient_hanoi_3d gradient_kanban_2d physics_lab
+ANIMATIONS = toggle three_way reorder_list ring_of_beads slider clock scheduler lists_in_lists tessellations chain_of_cells blend_square tactile_tessellations gizmo_3d gradient_hanoi_3d gradient_kanban_2d cozy_castle kart_racer_editor physics_lab
 
-.PHONY: $(EXAMPLES) all-examples screenshots clean
+.PHONY: $(EXAMPLES) all-examples screenshots clean cozy_castle_tour kart_racer_editor_tour
 
 all-examples:
 	cargo build --examples --features shapes-2d,shapes-3d
@@ -71,8 +71,7 @@ ANIMATIONS_WEBP = $(patsubst %,screenshot_%.webp,$(ANIMATIONS))
 XVFB_RUN := $(shell if [ -z "$$DISPLAY" ] && [ -z "$$WAYLAND_DISPLAY" ] && [ -z "$$WAYLAND_SOCKET" ] && command -v xvfb-run >/dev/null 2>&1; then echo "xvfb-run --auto-servernum --server-args='-screen 0 1280x720x24'"; fi)
 
 # Arguments: example name, cargo features. The example may save the PNG to the project root
-# or directly to screenshots/; either location is accepted. Some examples (cozy_castle,
-# kart_racer_editor) produce a second "_menu" shot as well.
+# or directly to screenshots/; either location is accepted.
 define capture_screenshot
 	@echo "=== Capturing $(1) screenshot ==="
 	$(XVFB_RUN) env DSD_SCREENSHOT=1 timeout 120 cargo run --example $(1) --features $(2) 2>&1 || true
@@ -88,19 +87,6 @@ define capture_screenshot
 		echo "Saved screenshots/screenshot_$(1).webp" || \
 		echo "Warning: ffmpeg WebP encoding failed for $(1)"; \
 		rm -f screenshot_$(1).png; \
-	fi
-	@if [ -f screenshots/screenshot_$(1)_menu.png ]; then \
-		ffmpeg -y -i screenshots/screenshot_$(1)_menu.png -vcodec libwebp -quality 75 \
-			screenshots/screenshot_$(1)_menu.webp 2>/dev/null && \
-		echo "Saved screenshots/screenshot_$(1)_menu.webp" || \
-		echo "Warning: ffmpeg WebP encoding failed for $(1)_menu"; \
-		rm -f screenshots/screenshot_$(1)_menu.png; \
-	elif [ -f screenshot_$(1)_menu.png ]; then \
-		ffmpeg -y -i screenshot_$(1)_menu.png -vcodec libwebp -quality 75 \
-			screenshots/screenshot_$(1)_menu.webp 2>/dev/null && \
-		echo "Saved screenshots/screenshot_$(1)_menu.webp" || \
-		echo "Warning: ffmpeg WebP encoding failed for $(1)_menu"; \
-		rm -f screenshot_$(1)_menu.png; \
 	fi
 endef
 
@@ -123,6 +109,32 @@ define capture_animation
 		echo "Warning: no frames found for $(1)"; \
 	fi
 endef
+
+# Arguments: example name, output name, cargo features. A long tour is recorded like an animation,
+# then encoded at 20 fps and 960 pixels wide so that it stays small enough for the README.
+define capture_tour
+	@echo "=== Capturing $(2) tour ==="
+	@mkdir -p frames
+	$(XVFB_RUN) env DSD_SCREENSHOT=1 timeout 1800 cargo run --release --example $(1) --features $(3) 2>&1 || true
+	@if ls frames/screenshot_$(2)_frame_*.png 1>/dev/null 2>&1; then \
+		echo "Encoding frames to WebP..."; \
+		ffmpeg -y -framerate 30 -i frames/screenshot_$(2)_frame_%04d.png \
+			-vf "fps=20,scale=960:-1:flags=lanczos" -vcodec libwebp -quality 70 -loop 0 \
+			screenshots/screenshot_$(2).webp 2>/dev/null && \
+		echo "Saved screenshots/screenshot_$(2).webp" || \
+		echo "Warning: ffmpeg WebP encoding failed for $(2)"; \
+		rm -f frames/screenshot_$(2)_frame_*.png; \
+	else \
+		echo "Warning: no frames found for $(2)"; \
+	fi
+endef
+
+# Records only the tour of one of the two larger examples into screenshots/.
+cozy_castle_tour:
+	$(call capture_tour,cozy_castle_3d,cozy_castle,shapes-3d)
+
+kart_racer_editor_tour:
+	$(call capture_tour,kart_racer_editor,kart_racer_editor,shapes-3d)
 
 screenshots:
 	@echo "=== Building all examples ==="
@@ -161,9 +173,9 @@ screenshots:
 	@echo ""
 	$(call capture_animation,gradient_kanban_2d,shapes-2d)
 	@echo ""
-	$(call capture_screenshot,cozy_castle,shapes-3d)
-	@echo ""
-	$(call capture_screenshot,kart_racer_editor,shapes-3d)
+	@echo "!!! WARNING: cozy_castle and kart_racer_editor tours are NOT regenerated here."
+	@echo "!!! They take a long time and produce large files (~10 MB combined)."
+	@echo "!!! Run 'make cozy_castle_tour' or 'make kart_racer_editor_tour' individually when needed."
 	@echo ""
 	$(call capture_animation,physics_lab,shapes-3d)
 	@echo ""

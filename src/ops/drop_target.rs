@@ -97,7 +97,7 @@ mod tests {
                 .with(ViewNode::circle("item", 1.0))
                 .with(ViewNode::rectangle("bin", Vec2::new(20.0, 20.0)).at_xy(Vec2::new(x, 0.0)))
         };
-        let context = DragContext::new(std::sync::Arc::new(view), "item".into(), Slot(0));
+        let context = DragContext::new(view, "item".into(), Slot(0));
         let mut at_start = drop_target("bin", Slot(2)).compile(&context);
         assert_eq!(at_start(Pointer::from(Vec2::new(100.0, 0.0))).gap, 0.0);
         let mut in_target_state =

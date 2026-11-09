@@ -13,7 +13,6 @@
 //! and [`Gizmo::add_if_revealed`] adds the handles only then.
 
 use std::f32::consts::{FRAC_PI_2, TAU};
-use std::sync::Arc;
 
 use bevy::math::{Dir3, Quat, Vec3};
 use bevy::prelude::{Color, Transform};
@@ -21,6 +20,7 @@ use bevy_gradmesh::Style;
 
 use crate::behavior::{DragContext, Frame};
 use crate::ops::{Snap, across_plane, along_axis, around_axis};
+use crate::owned::owned_fn;
 use crate::space::DragSpace;
 use crate::spec::DragSpec;
 use crate::view::{NodeId, View, ViewNode};
@@ -138,8 +138,10 @@ pub trait GizmoReveal {
     fn reveals_gizmo(&self) -> bool;
 }
 
-/// Turns the state a drag started from and a measured value into a new state.
-type Apply<S, V> = Arc<dyn Fn(&S, V) -> S + Send + Sync>;
+owned_fn! {
+    /// Turns the state a drag started from and a measured value into a new state.
+    Apply<S, V>, ApplyCall, (state: &S, value: V) -> S
+}
 
 /// What a handle does with a measured value.
 struct Tool<S, V> {
@@ -151,7 +153,7 @@ impl<S, V> Clone for Tool<S, V> {
     fn clone(&self) -> Self {
         Self {
             snap: self.snap,
-            apply: Arc::clone(&self.apply),
+            apply: self.apply.clone(),
         }
     }
 }
@@ -242,11 +244,11 @@ impl<S: Clone + Send + Sync + 'static> Gizmo<S> {
     pub fn translate(
         mut self,
         snap: Snap,
-        apply: impl Fn(&S, Vec3) -> S + Send + Sync + 'static,
+        apply: impl Fn(&S, Vec3) -> S + Clone + Send + Sync + 'static,
     ) -> Self {
         self.translate = Some(Tool {
             snap,
-            apply: Arc::new(apply),
+            apply: Apply::new(apply),
         });
         self
     }
@@ -259,11 +261,11 @@ impl<S: Clone + Send + Sync + 'static> Gizmo<S> {
     pub fn lift(
         mut self,
         snap: Snap,
-        apply: impl Fn(&S, f32) -> S + Send + Sync + 'static,
+        apply: impl Fn(&S, f32) -> S + Clone + Send + Sync + 'static,
     ) -> Self {
         self.lift = Some(Tool {
             snap,
-            apply: Arc::new(move |state: &S, offset: Vec3| apply(state, offset.y)),
+            apply: Apply::new(move |state: &S, offset: Vec3| apply(state, offset.y)),
         });
         self
     }
@@ -275,11 +277,11 @@ impl<S: Clone + Send + Sync + 'static> Gizmo<S> {
     pub fn rotate(
         mut self,
         snap: Snap,
-        apply: impl Fn(&S, Quat) -> S + Send + Sync + 'static,
+        apply: impl Fn(&S, Quat) -> S + Clone + Send + Sync + 'static,
     ) -> Self {
         self.rotate = Some(Tool {
             snap,
-            apply: Arc::new(apply),
+            apply: Apply::new(apply),
         });
         self
     }
@@ -292,11 +294,11 @@ impl<S: Clone + Send + Sync + 'static> Gizmo<S> {
     pub fn scale(
         mut self,
         snap: Snap,
-        apply: impl Fn(&S, Vec3) -> S + Send + Sync + 'static,
+        apply: impl Fn(&S, Vec3) -> S + Clone + Send + Sync + 'static,
     ) -> Self {
         self.scale = Some(Tool {
             snap,
-            apply: Arc::new(apply),
+            apply: Apply::new(apply),
         });
         self
     }
@@ -311,11 +313,11 @@ impl<S: Clone + Send + Sync + 'static> Gizmo<S> {
     pub fn scale_uniform(
         mut self,
         snap: Snap,
-        apply: impl Fn(&S, f32) -> S + Send + Sync + 'static,
+        apply: impl Fn(&S, f32) -> S + Clone + Send + Sync + 'static,
     ) -> Self {
         self.scale_uniform = Some(Tool {
             snap,
-            apply: Arc::new(apply),
+            apply: Apply::new(apply),
         });
         self
     }
@@ -457,7 +459,7 @@ impl<S: Clone + Send + Sync + 'static> Gizmo<S> {
                     let tool = tool.clone();
                     DragSpec::from(
                         along_axis(move |state: &S, distance| {
-                            (tool.apply)(state, *direction * distance)
+                            tool.apply.call(state, *direction * distance)
                         })
                         .snap(tool.snap),
                     )
@@ -494,7 +496,7 @@ impl<S: Clone + Send + Sync + 'static> Gizmo<S> {
                 .draggable_in(space, move || {
                     let tool = tool.clone();
                     DragSpec::from(
-                        across_plane(move |state: &S, offset| (tool.apply)(state, offset))
+                        across_plane(move |state: &S, offset| tool.apply.call(state, offset))
                             .snap(tool.snap),
                     )
                 }),
@@ -521,7 +523,8 @@ impl<S: Clone + Send + Sync + 'static> Gizmo<S> {
                     let tool = tool.clone();
                     DragSpec::from(
                         around_axis(move |state: &S, angle| {
-                            (tool.apply)(state, Quat::from_axis_angle(*direction, angle))
+                            tool.apply
+                                .call(state, Quat::from_axis_angle(*direction, angle))
                         })
                         .snap(tool.snap),
                     )
@@ -546,7 +549,7 @@ impl<S: Clone + Send + Sync + 'static> Gizmo<S> {
                     let tool = tool.clone();
                     DragSpec::from(
                         along_axis(move |state: &S, distance| {
-                            (tool.apply)(state, Vec3::ONE + unit * distance / size)
+                            tool.apply.call(state, Vec3::ONE + unit * distance / size)
                         })
                         .snap(Snap {
                             step: tool.snap.step * size,
@@ -601,8 +604,8 @@ fn uniform_spec<S: Clone + Send + Sync + 'static>(
             let raw = ((pointer.point + grab - center).length() - start) / size;
             let (shown, committed) = tool.snap.apply(raw);
             Frame::new(
-                context.render(&(tool.apply)(&state, 1.0 + shown)),
-                (tool.apply)(&state, 1.0 + committed),
+                context.render(&tool.apply.call(&state, 1.0 + shown)),
+                tool.apply.call(&state, 1.0 + committed),
                 0.0,
             )
         })
@@ -756,14 +759,14 @@ mod tests {
     }
 
     fn context(cube: Cube, handle: &str, space: DragSpace) -> DragContext<Cube> {
-        DragContext::new(Arc::new(cube_view), handle.to_owned().into(), cube).with_space(space)
+        DragContext::new(cube_view, handle.to_owned().into(), cube).with_space(space)
     }
 
     fn drag(handle: &str, pointer: Pointer) -> Cube {
         let cube = start();
         let view = cube_view(&cube);
         let node = view.get(handle).unwrap();
-        let spec = (node.drag.as_ref().unwrap())();
+        let spec = node.drag_spec(&cube).unwrap();
         let context = context(cube, handle, node.drag_space.unwrap());
         spec.compile(&context)(pointer).drop_state
     }
@@ -801,7 +804,7 @@ mod tests {
         let cube = start();
         let view = cube_view(&cube);
         let node = view.get(handle).unwrap();
-        let spec = (node.drag.as_ref().unwrap())();
+        let spec = node.drag_spec(&cube).unwrap();
         let context =
             context(cube, handle, node.drag_space.unwrap()).with_grab_offset(grab - center);
         let mut behavior = spec.compile(&context);
@@ -873,9 +876,9 @@ mod tests {
             ]
         );
         let node = view.get("cube/gizmo/translate-y").unwrap();
-        let spec = (node.drag.as_ref().unwrap())();
-        let context = DragContext::new(Arc::new(lifted), node.id.clone(), cube)
-            .with_space(node.drag_space.unwrap());
+        let spec = node.drag_spec(&cube).unwrap();
+        let context =
+            DragContext::new(lifted, node.id.clone(), cube).with_space(node.drag_space.unwrap());
         let anchor = Vec3::new(0.0, ARM / 2.0, 0.0);
         let dropped = spec.compile(&context)(Pointer::at(anchor + Vec3::Y * 0.7)).drop_state;
         assert!(
@@ -1024,14 +1027,13 @@ mod tests {
         let size = 3.0;
         let view = sized(size);
         let node = view.get("cube/gizmo/scale-x").unwrap();
-        let spec = (node.drag.as_ref().unwrap())();
+        let spec = node.drag_spec(&start()).unwrap();
         let reach = (ARM + 0.2) * size;
         let cube = Cube {
             transform: Transform::IDENTITY,
         };
-        let context =
-            DragContext::new(Arc::new(move |_: &Cube| sized(size)), node.id.clone(), cube)
-                .with_space(node.drag_space.unwrap());
+        let context = DragContext::new(move |_: &Cube| sized(size), node.id.clone(), cube)
+            .with_space(node.drag_space.unwrap());
         let dropped =
             spec.compile(&context)(Pointer::at(Vec3::X * (reach + ARM * size))).drop_state;
         assert!(
@@ -1047,7 +1049,7 @@ mod tests {
         let handle = "cube/gizmo/scale-uniform";
         let cube = start();
         let view = cube_view(&cube);
-        let spec = (view.get(handle).unwrap().drag.as_ref().unwrap())();
+        let spec = view.get(handle).unwrap().drag_spec(&cube).unwrap();
         let pivot = Vec3::new(1.0, 2.0, 3.0);
         let context = context(cube, handle, DragSpace::plane(pivot, Dir3::Z));
         let pointer = pivot + direction.normalize().extend(0.0) * distance;

@@ -1,7 +1,5 @@
 //! Shared fixtures for the operator tests.
 
-use std::sync::Arc;
-
 use bevy::math::Vec2;
 
 use crate::behavior::DragContext;
@@ -21,5 +19,5 @@ pub(crate) fn slots(slot: &Slot) -> View<Slot> {
 
 /// Dragging "item" out of slot 0.
 pub(crate) fn context() -> DragContext<Slot> {
-    DragContext::new(Arc::new(slots), "item".into(), Slot(0))
+    DragContext::new(slots, "item".into(), Slot(0))
 }

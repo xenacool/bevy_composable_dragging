@@ -2,8 +2,6 @@
 //! placed pieces dragged between cells, and a radial menu for everything about how the pieces
 //! are simulated.
 
-use std::sync::Arc;
-
 use avian3d::prelude::{Collider, RigidBody};
 use bevy::prelude::*;
 use bevy_composable_dragging::hud::{HudHost, Layout, Screen, Theme};
@@ -539,29 +537,27 @@ pub fn view(lab: &Lab, theme: &Theme) -> View<Lab> {
             );
         }
         for (index, primitive) in Primitive::ALL.into_iter().enumerate() {
-            let snapshot = lab.clone();
             let shape = primitive.shape(1.0, lab.setup.detail());
             let chip = ViewNode::grad(lab.chip_id(primitive), shape)
                 .at_xy(chip_position(index))
                 .scaled(Vec3::splat(0.8))
                 .with_color(tint(primitive))
-                .draggable(move || {
-                    closest_states(snapshot.placements(primitive))
+                .draggable_by(move |lab: &Lab| {
+                    closest_states(lab.placements(primitive))
                         .with_floating()
                         .with_snap_radius(SNAP)
                 });
             view.push(chip);
         }
         for piece in &lab.pieces {
-            let snapshot = lab.clone();
             let id = piece.id;
             let shape = piece.primitive.shape(FILL * CELL, lab.setup.detail());
             view.push(
                 ViewNode::grad(format!("piece-{id}"), shape)
                     .at_xy(piece.cell.center())
                     .with_color(tint(piece.primitive))
-                    .draggable(move || {
-                        closest_states(snapshot.relocations(id))
+                    .draggable_by(move |lab: &Lab| {
+                        closest_states(lab.relocations(id))
                             .with_floating()
                             .with_snap_radius(SNAP)
                     }),
@@ -569,7 +565,7 @@ pub fn view(lab: &Lab, theme: &Theme) -> View<Lab> {
         }
     }
     let layout = Layout::new(lab.screen());
-    push_menu(&mut view, &Arc::new(lab.clone()), &layout, theme);
+    push_menu(&mut view, lab, &layout, theme);
     view
 }
 

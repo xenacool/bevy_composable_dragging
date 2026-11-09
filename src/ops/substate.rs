@@ -1,26 +1,32 @@
 //! The `substate` operator.
 
-use std::sync::Arc;
-
 use crate::behavior::{Chaining, DragContext, Frame, ViewFn};
+use crate::owned::owned_fn;
 use crate::spec::DragSpec;
 use crate::view::NodeId;
 
-type Get<S, T> = dyn Fn(&S) -> T + Send + Sync;
-type Set<S, T> = dyn Fn(&S, T) -> S + Send + Sync;
+owned_fn! {
+    /// Reads the part of a state that a [`Lens`] focuses on.
+    Get<S, T>, GetCall, (state: &S) -> T
+}
+
+owned_fn! {
+    /// Puts a part back into a state for a [`Lens`].
+    Set<S, T>, SetCall, (state: &S, part: T) -> S
+}
 
 /// A focus on a part of type `T` of a state of type `S`: how to read the part and how to put a
 /// new one back.
 pub struct Lens<S, T> {
-    get: Arc<Get<S, T>>,
-    set: Arc<Set<S, T>>,
+    get: Get<S, T>,
+    set: Set<S, T>,
 }
 
 impl<S, T> Clone for Lens<S, T> {
     fn clone(&self) -> Self {
         Self {
-            get: Arc::clone(&self.get),
-            set: Arc::clone(&self.set),
+            get: self.get.clone(),
+            set: self.set.clone(),
         }
     }
 }
@@ -29,23 +35,23 @@ impl<S, T> Lens<S, T> {
     /// Creates a lens from a getter and a setter. `set` returns a copy of the state with the
     /// part replaced.
     pub fn new(
-        get: impl Fn(&S) -> T + Send + Sync + 'static,
-        set: impl Fn(&S, T) -> S + Send + Sync + 'static,
+        get: impl Fn(&S) -> T + Clone + Send + Sync + 'static,
+        set: impl Fn(&S, T) -> S + Clone + Send + Sync + 'static,
     ) -> Self {
         Self {
-            get: Arc::new(get),
-            set: Arc::new(set),
+            get: Get::new(get),
+            set: Set::new(set),
         }
     }
 
     /// Reads the part from `state`.
     pub fn get(&self, state: &S) -> T {
-        (self.get)(state)
+        self.get.call(state)
     }
 
     /// Returns a copy of `state` with the part replaced by `part`.
     pub fn set(&self, state: &S, part: T) -> S {
-        (self.set)(state, part)
+        self.set.call(state, part)
     }
 }
 
@@ -84,13 +90,13 @@ where
 {
     DragSpec::new(move |context: &DragContext<S>| {
         let whole = context.start_state().clone();
-        let part_view: ViewFn<T> = {
+        let part_view = {
             let view_fn = context.view_fn();
             let lens = lens.clone();
             let whole = whole.clone();
-            Arc::new(move |part: &T| view_fn(&lens.set(&whole, part.clone())).rebind())
+            ViewFn::new(move |part: &T| view_fn.call(&lens.set(&whole, part.clone())).rebind())
         };
-        let part_context = DragContext::new(
+        let part_context = DragContext::with_view_fn(
             part_view,
             NodeId::from(context.dragged().to_owned()),
             lens.get(&whole),
@@ -127,7 +133,6 @@ where
 #[cfg(test)]
 mod tests {
     use crate::space::Pointer;
-    use std::sync::Arc;
 
     use bevy::math::Vec2;
 
@@ -149,7 +154,7 @@ mod tests {
     }
 
     fn two_context() -> DragContext<Two> {
-        DragContext::new(Arc::new(two_view), "item".into(), Two { left: 0, right: 2 })
+        DragContext::new(two_view, "item".into(), Two { left: 0, right: 2 })
     }
 
     fn left() -> Lens<Two, usize> {

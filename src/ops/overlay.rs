@@ -1,7 +1,5 @@
 //! The `with_overlay` modifier.
 
-use std::sync::Arc;
-
 use crate::behavior::Frame;
 use crate::spec::DragSpec;
 use crate::view::{NodeId, ViewNode};
@@ -29,12 +27,11 @@ impl<S: Clone + Send + Sync + 'static> DragSpec<S> {
     #[must_use]
     pub fn with_overlay(
         self,
-        overlay: impl Fn(&Frame<S>) -> Vec<ViewNode<S>> + Send + Sync + 'static,
+        overlay: impl Fn(&Frame<S>) -> Vec<ViewNode<S>> + Clone + Send + Sync + 'static,
     ) -> Self {
-        let overlay = Arc::new(overlay);
         Self::new(move |context| {
             let mut inner = self.compile(context);
-            let overlay = Arc::clone(&overlay);
+            let overlay = overlay.clone();
             Box::new(move |pointer| {
                 let mut frame = inner(pointer);
                 let nodes = overlay(&frame);

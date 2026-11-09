@@ -59,7 +59,6 @@
 //! ```
 
 use std::f32::consts::TAU;
-use std::sync::Arc;
 
 use bevy::math::{Dir3, Quat, Vec3};
 use bevy::prelude::{Color, Transform};
@@ -67,6 +66,7 @@ use bevy_gradmesh::Style;
 
 use crate::gizmo::{EDGE_ON, END_ON};
 use crate::ops::{Snap, across_plane, along_axis, around_axis};
+use crate::owned::owned_fn;
 use crate::space::DragSpace;
 use crate::spec::DragSpec;
 use crate::view::{NodeId, View, ViewNode};
@@ -100,24 +100,26 @@ struct Tool<S, V> {
     edit: Edit<S, V>,
 }
 
-/// Turns the state a drag started from, the index of a point or segment and a measured value into
-/// a new state.
-type Edit<S, V> = Arc<dyn Fn(&S, usize, V) -> S + Send + Sync>;
+owned_fn! {
+    /// Turns the state a drag started from, the index of a point or segment and a measured value
+    /// into a new state.
+    Edit<S, V>, EditCall, (state: &S, index: usize, value: V) -> S
+}
 
 impl<S, V> Clone for Tool<S, V> {
     fn clone(&self) -> Self {
         Self {
             snap: self.snap,
-            edit: Arc::clone(&self.edit),
+            edit: self.edit.clone(),
         }
     }
 }
 
 impl<S, V> Tool<S, V> {
-    fn new(snap: Snap, edit: impl Fn(&S, usize, V) -> S + Send + Sync + 'static) -> Self {
+    fn new(snap: Snap, edit: impl Fn(&S, usize, V) -> S + Clone + Send + Sync + 'static) -> Self {
         Self {
             snap,
-            edit: Arc::new(edit),
+            edit: Edit::new(edit),
         }
     }
 }
@@ -295,7 +297,7 @@ impl<S: Clone + Send + Sync + 'static> CurveHandles<S> {
     pub fn move_point(
         mut self,
         snap: Snap,
-        apply: impl Fn(&S, usize, Vec3) -> S + Send + Sync + 'static,
+        apply: impl Fn(&S, usize, Vec3) -> S + Clone + Send + Sync + 'static,
     ) -> Self {
         self.move_point = Some(Tool::new(snap, apply));
         self
@@ -308,7 +310,7 @@ impl<S: Clone + Send + Sync + 'static> CurveHandles<S> {
     pub fn raise_point(
         mut self,
         snap: Snap,
-        apply: impl Fn(&S, usize, f32) -> S + Send + Sync + 'static,
+        apply: impl Fn(&S, usize, f32) -> S + Clone + Send + Sync + 'static,
     ) -> Self {
         self.raise_point = Some(Tool::new(snap, apply));
         self
@@ -322,7 +324,7 @@ impl<S: Clone + Send + Sync + 'static> CurveHandles<S> {
     pub fn insert_point(
         mut self,
         snap: Snap,
-        apply: impl Fn(&S, usize, Vec3) -> S + Send + Sync + 'static,
+        apply: impl Fn(&S, usize, Vec3) -> S + Clone + Send + Sync + 'static,
     ) -> Self {
         self.insert_point = Some(Tool::new(snap, apply));
         self
@@ -338,7 +340,7 @@ impl<S: Clone + Send + Sync + 'static> CurveHandles<S> {
         mut self,
         lateral: &[Lateral],
         snap: Snap,
-        apply: impl Fn(&S, usize, f32) -> S + Send + Sync + 'static,
+        apply: impl Fn(&S, usize, f32) -> S + Clone + Send + Sync + 'static,
     ) -> Self {
         self.width = Some((lateral.to_vec(), Tool::new(snap, apply)));
         self
@@ -353,7 +355,7 @@ impl<S: Clone + Send + Sync + 'static> CurveHandles<S> {
         mut self,
         twist: &[Twist],
         snap: Snap,
-        apply: impl Fn(&S, usize, f32) -> S + Send + Sync + 'static,
+        apply: impl Fn(&S, usize, f32) -> S + Clone + Send + Sync + 'static,
     ) -> Self {
         self.roll = Some((twist.to_vec(), Tool::new(snap, apply)));
         self
@@ -477,7 +479,7 @@ impl<S: Clone + Send + Sync + 'static> CurveHandles<S> {
                 .draggable_in(space, move || {
                     let tool = tool.clone();
                     DragSpec::from(
-                        across_plane(move |state: &S, offset| (tool.edit)(state, index, offset))
+                        across_plane(move |state: &S, offset| tool.edit.call(state, index, offset))
                             .snap(tool.snap),
                     )
                 }),
@@ -505,7 +507,7 @@ impl<S: Clone + Send + Sync + 'static> CurveHandles<S> {
             .draggable_in(space, move || {
                 let tool = tool.clone();
                 DragSpec::from(
-                    along_axis(move |state: &S, distance| (tool.edit)(state, index, distance))
+                    along_axis(move |state: &S, distance| tool.edit.call(state, index, distance))
                         .snap(tool.snap),
                 )
             }),
@@ -527,8 +529,10 @@ impl<S: Clone + Send + Sync + 'static> CurveHandles<S> {
                 .draggable_in(space, move || {
                     let tool = tool.clone();
                     DragSpec::from(
-                        across_plane(move |state: &S, offset| (tool.edit)(state, segment, offset))
-                            .snap(tool.snap),
+                        across_plane(move |state: &S, offset| {
+                            tool.edit.call(state, segment, offset)
+                        })
+                        .snap(tool.snap),
                     )
                 }),
         );
@@ -567,7 +571,7 @@ impl<S: Clone + Send + Sync + 'static> CurveHandles<S> {
             .draggable_in(space, move || {
                 let tool = tool.clone();
                 DragSpec::from(
-                    along_axis(move |state: &S, distance| (tool.edit)(state, index, distance))
+                    along_axis(move |state: &S, distance| tool.edit.call(state, index, distance))
                         .snap(tool.snap),
                 )
             }),
@@ -609,7 +613,7 @@ impl<S: Clone + Send + Sync + 'static> CurveHandles<S> {
                 .draggable_in(space, move || {
                     let tool = tool.clone();
                     DragSpec::from(
-                        around_axis(move |state: &S, angle| (tool.edit)(state, index, angle))
+                        around_axis(move |state: &S, angle| tool.edit.call(state, index, angle))
                             .snap(tool.snap),
                     )
                 }),
@@ -743,9 +747,9 @@ mod tests {
     fn drag(road: &Road, node: &str, to: impl Fn(Vec3) -> Vec3) -> Road {
         let view = view(road);
         let node_ref = view.get(node).unwrap();
-        let spec = (node_ref.drag.as_ref().unwrap())();
+        let spec = node_ref.drag_spec(road).unwrap();
         let anchor = view.world_position(node).unwrap();
-        let context = DragContext::new(Arc::new(self::view), node.to_owned().into(), road.clone())
+        let context = DragContext::new(self::view, node.to_owned().into(), road.clone())
             .with_space(node_ref.drag_space.unwrap());
         spec.compile(&context)(Pointer::at(to(anchor))).drop_state
     }
@@ -937,14 +941,13 @@ mod tests {
         let node = "road/roll-1";
         let view = view(&chosen);
         let node_ref = view.get(node).unwrap();
-        let spec = (node_ref.drag.as_ref().unwrap())();
+        let spec = node_ref.drag_spec(&chosen).unwrap();
         let center = chosen.points[1];
         let ring = ROLL_RING * GEM_RADIUS;
         let grab = Vec3::new(ring, 0.0, 0.0);
-        let context =
-            DragContext::new(Arc::new(self::view), node.to_owned().into(), chosen.clone())
-                .with_space(node_ref.drag_space.unwrap())
-                .with_grab_offset(grab);
+        let context = DragContext::new(self::view, node.to_owned().into(), chosen.clone())
+            .with_space(node_ref.drag_space.unwrap())
+            .with_grab_offset(grab);
         let mut behavior = spec.compile(&context);
         let angle = 80_f32.to_radians();
         let pointer = center + Vec3::new(angle.cos(), angle.sin(), 0.0) * ring;

@@ -1,30 +1,27 @@
-//! The view of the editor: the handles of the track, the gizmo and the menu.
+//! The view of the editor: the handles of the track, the brush and the menu.
 //!
-//! The track itself is drawn by the world of the kart racer from the design, not by the view;
-//! the view draws the architect's grid and stilts and, until the track can be driven, a ribbon.
-//! The view holds what is edited with the pointer: a node named `track` that the handles of the
-//! curve hang from, and an `anchor` at the selected control point that the gizmo hangs from. The
-//! tool decides which handles are there. While the track is driven there are only the HUD nodes.
-
-use std::sync::Arc;
+//! The road is a node of the view, swept along the design that the view is of, so it bends and
+//! widens while a handle is held, and the view draws the architect's grid and stilts. The view
+//! holds what is edited with the pointer: a node named `track` that the handles of the curve
+//! hang from, and the terrain, which takes the presses that no handle does. The tool decides
+//! which handles are there.
 
 use bevy::prelude::*;
-use bevy_composable_dragging::gizmo::{Gizmo, GizmoReveal};
-use bevy_composable_dragging::handles::{CurveHandles, Lateral, Twist};
+use bevy_composable_dragging::handles::{CurveHandles, Lateral};
 use bevy_composable_dragging::hud::{Layout, Theme};
 use bevy_composable_dragging::ops::{Snap, custom, state};
 use bevy_composable_dragging::radial::{RadialHost, push_menu};
-use bevy_composable_dragging::{DragContext, DragSpace, DragSpec, Frame, Pointer, View, ViewNode};
+use bevy_composable_dragging::{DragSpace, DragSpec, Frame, Pointer, View, ViewNode};
 
 use crate::blueprint;
 use crate::common::HUD_LAYER;
 use crate::ground::BASE;
-use crate::state::{Cursor, Editor, Tool};
+use crate::state::{Cursor, Editor, Tool, snap};
 
+/// The id of the node that is the road.
+pub const ROAD: &str = "road";
 /// The id of the node that the handles of the curve hang from.
 pub const TRACK: &str = "track";
-/// The id of the node that the gizmo hangs from.
-pub const ANCHOR: &str = "anchor";
 /// The id of the node that is the terrain.
 pub const TERRAIN: &str = "terrain";
 /// The id of the node that shows the brush.
@@ -36,6 +33,7 @@ const TERRAIN_THICKNESS: f32 = 0.01;
 /// How thin the column of the brush is at least, as a fraction of its radius, so a brush that
 /// has not moved the land yet can still be seen.
 const CURSOR_THIN: f32 = 0.1;
+const ROAD_COLOR: Color = Color::srgb(0.5, 0.5, 0.53);
 const CURSOR_COLOR: Color = Color::srgba(0.45, 0.75, 1.0, 0.45);
 
 /// The look of the HUD: the library theme, drawn on the layer of the HUD camera.
@@ -48,22 +46,6 @@ fn anchor(id: &str, at: Vec3) -> ViewNode<Editor> {
     ViewNode::group(id.to_owned()).at(at)
 }
 
-/// What a press on the ground does with the Insert tool: it lays a control point where it lands,
-/// and the point follows the pointer until the press is let go. A drag hands its operator the
-/// place of the node it holds, which is the pointer less the grab offset, so the offset is put
-/// back to find the pointer itself.
-fn place() -> DragSpec<Editor> {
-    DragSpec::new(|context: &DragContext<Editor>| {
-        let start = context.start_state().clone();
-        let grab = context.grab_offset();
-        let context = context.clone();
-        Box::new(move |pointer| {
-            let next = start.placed(pointer.point + grab);
-            Frame::new(context.render(&next), next, 0.0)
-        })
-    })
-}
-
 /// Where a sculpting drag took hold: the point of the land that was pressed, and the vertical
 /// line through it that the pointer is measured along.
 struct Grip {
@@ -74,7 +56,7 @@ struct Grip {
 
 /// What a press on the land does with the Hills tool: it takes hold of the point of the land
 /// under the pointer, and dragging up raises the land around it while dragging down lowers it,
-/// in the steps of the precision. The column of the brush shows how far, and the land takes the
+/// in steps of a metre. The column of the brush shows how far, and the land takes the
 /// change when the press is let go. A press that is not on the land does nothing.
 fn sculpt(editor: &Editor) -> DragSpec<Editor> {
     let editor = editor.clone();
@@ -100,7 +82,7 @@ fn sculpt(editor: &Editor) -> DragSpec<Editor> {
                 .line
                 .resolve(pointer.ray)
                 .map_or(0.0, |point| point.y - grip.start);
-            let (shown, committed) = editor.precision.snap().apply(raw);
+            let (shown, committed) = snap().apply(raw);
             let cursor = Cursor {
                 center: grip.center,
                 radius: editor.brush_radius(),
@@ -113,36 +95,6 @@ fn sculpt(editor: &Editor) -> DragSpec<Editor> {
                         .with_cursor(Some(cursor)),
                 ),
                 editor.sculpted(grip.center, committed),
-                0.0,
-            )
-        })
-    })
-}
-
-/// What a press on the land does with the Holes tool: it cuts a hole under the pointer, or fills
-/// one in when the press is on a hole, and dragging carries on the same way over the land it
-/// crosses, so a trench can be cut or a field filled in one stroke.
-fn carve(editor: &Editor) -> DragSpec<Editor> {
-    let editor = editor.clone();
-    custom(move |context| {
-        let context = context.clone();
-        let start = editor.clone();
-        let mut carved = editor.clone();
-        let mut cutting: Option<bool> = None;
-        Box::new(move |pointer: Pointer| {
-            let Some(hit) = start.ground.hit(pointer.ray) else {
-                return Frame::new(context.render(&carved), carved.clone(), 0.0);
-            };
-            let cut = *cutting.get_or_insert_with(|| !start.ground.is_hole(hit.xz()));
-            carved = carved.holed(hit.xz(), cut);
-            let cursor = Cursor {
-                center: hit.xz(),
-                radius: carved.brush_radius(),
-                rise: 0.0,
-            };
-            Frame::new(
-                context.render(&carved.with_cursor(Some(cursor))),
-                carved.clone(),
                 0.0,
             )
         })
@@ -174,14 +126,13 @@ fn cursor(editor: &Editor) -> Option<ViewNode<Editor>> {
 
 /// The terrain: a slab under the whole map that is not seen. A press that no handle takes lands
 /// on it. It selects the terrain, which clears the selection and closes the menu, or with the
-/// Insert tool it places a control point, or with a tool of the land it shapes the land.
+/// Hills tool it shapes the land.
 fn terrain(editor: &Editor) -> ViewNode<Editor> {
     let (middle, half) = editor.terrain_square();
     let width = half * 2.0;
     let thickness = width * TERRAIN_THICKNESS;
     let cleared = editor.with_selected(None).with_menu(None);
     let tool = editor.tool;
-    let snapshot = editor.clone();
     ViewNode::cuboid(TERRAIN, Vec3::new(width, thickness, width), 0.0)
         .at(Vec3::new(
             middle.x,
@@ -190,13 +141,11 @@ fn terrain(editor: &Editor) -> ViewNode<Editor> {
         ))
         .with_opacity(0.0)
         .casts_shadow(false)
-        .draggable_in(
+        .draggable_by_in(
             DragSpace::plane(Vec3::Y * GROUND_HEIGHT, Dir3::Y),
-            move || match tool {
-                Tool::Insert => place(),
-                Tool::Hills => sculpt(&snapshot),
-                Tool::Hole => carve(&snapshot),
-                _ => state(cleared.clone()),
+            move |editor| match tool {
+                Tool::Hills => sculpt(editor),
+                Tool::Move | Tool::Width => state(cleared.clone()),
             },
         )
 }
@@ -204,8 +153,6 @@ fn terrain(editor: &Editor) -> ViewNode<Editor> {
 /// The handles the chosen tool shows for the control points of the track.
 fn curve_handles(editor: &Editor) -> CurveHandles<Editor> {
     let tool = editor.tool;
-    let snap = editor.precision.snap();
-    let turn = editor.precision.turn();
     let points: Vec<Vec3> = (0..editor.design.control_points.len())
         .map(|index| editor.handle_position(index))
         .collect();
@@ -217,51 +164,28 @@ fn curve_handles(editor: &Editor) -> CurveHandles<Editor> {
             half_width: frame.width / 2.0,
         })
         .collect();
-    let twist: Vec<Twist> = editor
-        .frames()
-        .iter()
-        .map(|frame| Twist {
-            axis: frame.tangent,
-            angle: frame.roll,
-        })
-        .collect();
     let mut handles = CurveHandles::new(TRACK, Transform::IDENTITY, &points)
         .closed(true)
         .selected(editor.selected)
         .with_radius(editor.handle_radius())
         .move_point(
-            if tool == Tool::Move { snap } else { Snap::NONE },
+            if tool == Tool::Move {
+                snap()
+            } else {
+                Snap::NONE
+            },
             move |editor: &Editor, index, offset| match tool {
                 Tool::Move => editor.moved(index, offset),
-                Tool::Delete => editor.removed(index),
-                _ => editor.with_selected(Some(index)),
+                Tool::Width | Tool::Hills => editor.with_selected(Some(index)),
             },
         );
     if let Some(eye) = eye(editor) {
         handles = handles.seen_from(eye);
     }
-    match tool {
-        Tool::Raise => {
-            handles = handles.raise_point(snap, |editor: &Editor, index, rise| {
-                editor.raised(index, rise)
-            });
-        }
-        Tool::Width => {
-            handles = handles.width(&lateral, snap, |editor: &Editor, index, change| {
-                editor.widened(index, change)
-            });
-        }
-        Tool::Roll => {
-            handles = handles.roll(&twist, turn, |editor: &Editor, index, change| {
-                editor.rolled(index, change)
-            });
-        }
-        Tool::Insert => {
-            handles = handles.insert_point(snap, |editor: &Editor, segment, offset| {
-                editor.inserted(segment, offset)
-            });
-        }
-        Tool::Select | Tool::Move | Tool::Delete | Tool::Hills | Tool::Hole | Tool::Drive => {}
+    if tool == Tool::Width {
+        handles = handles.width(&lateral, snap(), |editor: &Editor, index, change| {
+            editor.widened(index, change)
+        });
     }
     handles
 }
@@ -276,49 +200,33 @@ fn eye(editor: &Editor) -> Option<Vec3> {
     editor.screen.eye_for(at)
 }
 
-/// The gizmo of the selected control point, which moves it along each axis and in each plane.
-fn point_gizmo(editor: &Editor, index: usize) -> Gizmo<Editor> {
-    let at = editor.handle_position(index);
-    let gizmo = Gizmo::new(ANCHOR, Transform::from_translation(at)).with_size(editor.gizmo_size());
-    let gizmo = match eye(editor) {
-        Some(eye) => gizmo.seen_from(eye),
-        None => gizmo,
-    };
-    gizmo.translate(editor.precision.snap(), move |editor: &Editor, offset| {
-        editor.moved(index, offset)
-    })
-}
-
 /// The points of the world that the handles of the chosen tool occupy around control point
-/// `index`: the gem, the cones, the width handle, the roll ring and the gizmo. The chip of the
-/// menu keeps clear of them.
+/// `index`: the gem and the width handle. The chip of the menu keeps clear of them.
 pub fn footprint(editor: &Editor, index: usize) -> Vec<Vec3> {
-    let mut spots = curve_handles(editor).footprint(index);
-    if editor.reveals_gizmo() && editor.point().is_some_and(|(chosen, _)| chosen == index) {
-        spots.extend(point_gizmo(editor, index).footprint());
-    }
-    spots
+    curve_handles(editor).footprint(index)
 }
 
-/// The view of the editor: the handles of the track unless it is being driven, and the menu.
+/// The road of the design: a strip swept along the curve through the control points.
+fn road(editor: &Editor) -> ViewNode<Editor> {
+    ViewNode::grad(ROAD, editor.design.road_shape())
+        .with_color(ROAD_COLOR)
+        .pickable(false)
+        .casts_shadow(false)
+}
+
+/// The view of the editor: the terrain, the road, the drawing, the handles of the track and the menu.
 pub fn view(editor: &Editor) -> View<Editor> {
     let mut view = View::new();
-    if !editor.testing {
-        view.push(terrain(editor));
-        if let Some(brush) = cursor(editor) {
-            view.push(brush);
-        }
-        blueprint::push(&mut view, editor);
-        view.push(anchor(TRACK, Vec3::ZERO));
-        curve_handles(editor).add_to(&mut view);
-        if let Some((index, _)) = editor.point() {
-            let at = editor.handle_position(index);
-            view.push(anchor(ANCHOR, at));
-            point_gizmo(editor, index).add_if_revealed(&mut view, editor);
-        }
+    view.push(terrain(editor));
+    view.push(road(editor));
+    if let Some(brush) = cursor(editor) {
+        view.push(brush);
     }
+    blueprint::push(&mut view, editor);
+    view.push(anchor(TRACK, Vec3::ZERO));
+    curve_handles(editor).add_to(&mut view);
     let layout = Layout::new(&editor.screen);
-    push_menu(&mut view, &Arc::new(editor.clone()), &layout, &theme());
+    push_menu(&mut view, editor, &layout, &theme());
     view
 }
 
@@ -328,14 +236,12 @@ mod tests {
 
     use super::*;
 
-    fn with_tool(tool: Tool, selected: Option<usize>) -> Editor {
-        let mut editor = Editor::upstream().with_selected(selected);
-        editor.tool = tool;
-        editor
-    }
+    /// A control point whose width handle does not face the default eye of the tests end-on, which
+    /// would leave it out.
+    const WIDTH_POINT: usize = 1;
 
-    fn empty(tool: Tool) -> Editor {
-        Editor::initial().with_tool(tool)
+    fn with_tool(tool: Tool, selected: Option<usize>) -> Editor {
+        Editor::initial().with_tool(tool).with_selected(selected)
     }
 
     fn ids(editor: &Editor) -> Vec<String> {
@@ -356,11 +262,10 @@ mod tests {
     fn drag(editor: &Editor, node: &str, to: impl Fn(Vec3) -> Vec3) -> Editor {
         let view = view(editor);
         let node_ref = view.get(node).unwrap();
-        let spec = (node_ref.drag.as_ref().unwrap())();
+        let spec = node_ref.drag_spec(editor).unwrap();
         let anchor = view.world_position(node).unwrap();
-        let context =
-            DragContext::new(Arc::new(self::view), node.to_owned().into(), editor.clone())
-                .with_space(node_ref.drag_space.unwrap());
+        let context = DragContext::new(self::view, node.to_owned().into(), editor.clone())
+            .with_space(node_ref.drag_space.unwrap());
         spec.compile(&context)(Pointer::at(to(anchor))).drop_state
     }
 
@@ -390,25 +295,22 @@ mod tests {
     }
 
     #[test]
-    fn the_land_tools_have_the_gems_and_the_terrain_and_no_other_handles() {
-        for tool in [Tool::Hills, Tool::Hole] {
-            let ids = ids(&with_tool(tool, None));
-            assert!(has(&ids, TERRAIN), "{tool:?}");
-            assert!(has(&ids, "track/point-"), "{tool:?}");
-            for kind in [
-                "track/lift-",
-                "track/mid-",
-                "track/width-",
-                "track/roll-",
-                "anchor",
-            ] {
-                assert!(!has(&ids, kind), "{tool:?}: {kind}");
-            }
-            assert!(
-                !has(&ids, CURSOR),
-                "{tool:?}: there is no brush until the press"
-            );
-        }
+    fn the_road_is_swept_along_the_design_it_is_the_view_of_and_takes_no_presses() {
+        let editor = with_tool(Tool::Move, None);
+        let height = |editor: &Editor| match &view(editor).get(ROAD).unwrap().geometry {
+            bevy_composable_dragging::Geometry::Grad(shape) => shape.bounds(),
+            other => panic!("{other:?}"),
+        };
+        assert!(!view(&editor).get(ROAD).unwrap().pickable);
+        let wider = editor.widened(2, 6.0);
+        let (before, after) = (height(&editor), height(&wider));
+        assert_ne!(before.min, after.min, "a wider road reaches further out");
+        let pulled = editor.moved(2, Vec3::new(40.0, 0.0, 40.0));
+        assert_ne!(
+            height(&pulled).max,
+            before.max,
+            "a pulled curve reaches further out"
+        );
     }
 
     #[test]
@@ -458,56 +360,23 @@ mod tests {
     }
 
     #[test]
-    fn the_select_tool_has_gems_and_nothing_else() {
-        let ids = ids(&with_tool(Tool::Select, None));
-        let points = ids
-            .iter()
-            .filter(|id| id.starts_with("track/point-"))
-            .count();
-        assert_eq!(points, Editor::upstream().design.control_points.len());
-        for kind in [
-            "track/lift-",
-            "track/mid-",
-            "track/width-",
-            "track/roll-",
-            "anchor",
-        ] {
-            assert!(!has(&ids, kind), "{kind}");
+    fn every_tool_has_the_gems_and_only_the_width_tool_has_the_width_handle() {
+        let points = Editor::initial().design.control_points.len();
+        for tool in Tool::ALL {
+            let ids = ids(&with_tool(tool, Some(WIDTH_POINT)));
+            let gems = ids
+                .iter()
+                .filter(|id| id.starts_with("track/point-"))
+                .count();
+            assert_eq!(gems, points, "{tool:?}");
+            assert_eq!(has(&ids, "track/width-1"), tool == Tool::Width, "{tool:?}");
         }
-    }
-
-    #[test]
-    fn each_tool_shows_its_own_handles() {
-        let selected = Some(4);
-        assert!(has(&ids(&with_tool(Tool::Raise, selected)), "track/lift-"));
-        assert!(has(&ids(&with_tool(Tool::Insert, selected)), "track/mid-"));
-        let width = ids(&with_tool(Tool::Width, selected));
-        assert!(has(&width, "track/width-4"));
-        assert!(!has(&width, "track/roll-"));
-        let roll = ids(&with_tool(Tool::Roll, selected));
-        assert!(has(&roll, "track/roll-4"));
-        assert!(!has(&roll, "track/width-"));
         assert!(!has(&ids(&with_tool(Tool::Width, None)), "track/width-"));
     }
 
     #[test]
-    fn the_gizmo_follows_the_tool_and_the_drive() {
-        for tool in Tool::ALL {
-            let ids = ids(&with_tool(tool, Some(2)));
-            assert_eq!(has(&ids, "anchor/"), tool.reveals_gizmo(), "{tool:?}");
-        }
-        assert!(!has(&ids(&with_tool(Tool::Move, None)), "anchor"));
-        let mut driving = with_tool(Tool::Move, Some(2));
-        driving.testing = true;
-        assert!(
-            ids(&driving).is_empty(),
-            "only the menu is left while driving"
-        );
-    }
-
-    #[test]
     fn the_gems_float_above_the_control_points() {
-        let editor = with_tool(Tool::Select, None);
+        let editor = with_tool(Tool::Move, None);
         let view = view(&editor);
         for (index, point) in editor.design.control_points.iter().enumerate() {
             let gem = view
@@ -518,14 +387,14 @@ mod tests {
     }
 
     #[test]
-    fn dragging_a_gem_selects_and_the_move_tool_moves_it() {
-        let selected = drag(&with_tool(Tool::Select, None), "track/point-5", |at| {
+    fn dragging_a_gem_selects_it_and_the_move_tool_moves_it() {
+        let selected = drag(&with_tool(Tool::Width, None), "track/point-5", |at| {
             at + Vec3::new(9.0, 0.0, 9.0)
         });
         assert_eq!(selected.selected, Some(5));
-        assert_eq!(selected.design, Editor::upstream().design);
+        assert_eq!(selected.design, Editor::initial().design);
 
-        let before = Editor::upstream().design.control_points[5].position;
+        let before = Editor::initial().design.control_points[5].position;
         let moved = drag(&with_tool(Tool::Move, None), "track/point-5", |at| {
             at + Vec3::new(10.0, 0.0, -6.0)
         });
@@ -538,176 +407,44 @@ mod tests {
     }
 
     #[test]
-    fn dragging_a_cone_raises_the_road_in_steps() {
-        let editor = with_tool(Tool::Raise, Some(3));
-        let before = editor.design.control_points[3].position.y;
-        let raised = drag(&editor, "track/lift-3", |at| at + Vec3::new(4.0, 2.4, 0.0));
-        let after = raised.design.control_points[3].position.y;
-        assert!(
-            (after - before - 2.0).abs() < 1e-3,
-            "one metre steps: {after}"
-        );
-    }
-
-    #[test]
     fn dragging_the_width_handle_outwards_widens_the_road_and_inwards_narrows_it() {
-        let editor = with_tool(Tool::Width, Some(3));
-        let before = editor.design.control_points[3].width;
-        let wider = drag(&editor, "track/width-3", |at| {
-            at + editor.frames()[3].right * 2.0
+        let editor = with_tool(Tool::Width, Some(WIDTH_POINT));
+        let before = editor.design.control_points[WIDTH_POINT].width;
+        let wider = drag(&editor, "track/width-1", |at| {
+            at + editor.frames()[WIDTH_POINT].right * 2.0
         });
-        assert!(wider.design.control_points[3].width > before);
-        let narrower = drag(&editor, "track/width-3", |at| {
-            at - editor.frames()[3].right * 2.0
+        assert!(wider.design.control_points[WIDTH_POINT].width > before);
+        let narrower = drag(&editor, "track/width-1", |at| {
+            at - editor.frames()[WIDTH_POINT].right * 2.0
         });
-        assert!(narrower.design.control_points[3].width < before);
-        let width_after = |editor: &Editor| editor.frames()[3].width;
-        let grown = width_after(&wider) - width_after(&editor);
+        assert!(narrower.design.control_points[WIDTH_POINT].width < before);
+        let grown = wider.frames()[WIDTH_POINT].width - editor.frames()[WIDTH_POINT].width;
         assert!((grown - 4.0).abs() < 0.5, "two metres each side: {grown}");
     }
 
     #[test]
     fn the_width_stays_within_the_limits_of_the_track() {
-        let editor = with_tool(Tool::Width, Some(3));
-        let huge = drag(&editor, "track/width-3", |at| {
-            at + editor.frames()[3].right * 500.0
+        let editor = with_tool(Tool::Width, Some(WIDTH_POINT));
+        let huge = drag(&editor, "track/width-1", |at| {
+            at + editor.frames()[WIDTH_POINT].right * 500.0
         });
         assert_eq!(
-            huge.design.control_points[3].width,
+            huge.design.control_points[WIDTH_POINT].width,
             crate::track::MAX_POINT_WIDTH
         );
-        let tiny = drag(&editor, "track/width-3", |at| {
-            at - editor.frames()[3].right * 500.0
+        let tiny = drag(&editor, "track/width-1", |at| {
+            at - editor.frames()[WIDTH_POINT].right * 500.0
         });
         assert_eq!(
-            tiny.design.control_points[3].width,
+            tiny.design.control_points[WIDTH_POINT].width,
             crate::track::MIN_POINT_WIDTH
         );
     }
 
     #[test]
-    fn dragging_the_roll_ring_banks_the_road_in_steps_and_within_the_limit() {
-        let editor = with_tool(Tool::Roll, Some(3)).with_precision(crate::state::Precision::Coarse);
-        let frame = editor.frames()[3];
-        let node = "track/roll-3";
-        let view = view(&editor);
-        let node_ref = view.get(node).unwrap();
-        let spec = (node_ref.drag.as_ref().unwrap())();
-        let center = editor.handle_position(3);
-        let grab = frame.up * 5.0;
-        let context =
-            DragContext::new(Arc::new(self::view), node.to_owned().into(), editor.clone())
-                .with_space(node_ref.drag_space.unwrap())
-                .with_grab_offset(grab);
-        let mut behavior = spec.compile(&context);
-        let mut turned = |degrees: f32| {
-            let pointer =
-                center + Quat::from_axis_angle(frame.tangent, degrees.to_radians()) * grab;
-            behavior(Pointer::at(pointer - grab))
-                .drop_state
-                .design
-                .control_points[3]
-                .roll
-        };
-        let banked = turned(20.0);
-        assert!(
-            (banked - 15_f32.to_radians()).abs() < 1e-3,
-            "fifteen degree steps: {banked}"
-        );
-        let other_way = turned(-20.0);
-        assert!(
-            (other_way + 15_f32.to_radians()).abs() < 1e-3,
-            "{other_way}"
-        );
-        let far = turned(100.0);
-        assert!(
-            (far - crate::track::MAX_ROLL).abs() < 1e-5,
-            "the limit holds: {far}"
-        );
-    }
-
-    #[test]
-    fn dragging_a_middle_gem_inserts_a_control_point_there() {
-        let editor = with_tool(Tool::Insert, Some(0));
-        let count = editor.design.control_points.len();
-        let inserted = drag(&editor, "track/mid-2", |at| at + Vec3::new(0.0, 0.0, 5.0));
-        assert_eq!(inserted.design.control_points.len(), count + 1);
-        assert_eq!(inserted.selected, Some(3));
-    }
-
-    #[test]
-    fn pressing_a_gem_with_the_delete_tool_removes_the_point_unless_too_few_are_left() {
-        let editor = with_tool(Tool::Delete, None);
-        let count = editor.design.control_points.len();
-        let removed = drag(&editor, "track/point-4", |at| at);
-        assert_eq!(removed.design.control_points.len(), count - 1);
-        assert_eq!(removed.selected, None);
-
-        let mut small = Editor::upstream();
-        small.tool = Tool::Delete;
-        let mut design = small.design.clone();
-        while design.control_points.len() > crate::track::MIN_POINTS {
-            design = design.with_point_removed(0);
-        }
-        let small = small.with_design(design);
-        let refused = drag(&small, "track/point-0", |at| at);
-        assert_eq!(
-            refused.design.control_points.len(),
-            crate::track::MIN_POINTS
-        );
-    }
-
-    #[test]
-    fn the_gizmo_moves_the_selected_point_along_an_axis() {
-        let editor = with_tool(Tool::Move, Some(6));
-        let view = view(&editor);
-        let handle = view
-            .nodes()
-            .iter()
-            .map(|node| node.id.to_string())
-            .find(|id| id.starts_with("anchor/") && id.contains("translate-y"))
-            .expect("the gizmo has a vertical translate handle");
-        let before = editor.design.control_points[6].position;
-        let moved = drag(&editor, &handle, |at| at + Vec3::Y * 4.0);
-        let after = moved.design.control_points[6].position;
-        assert!(
-            (after.y - before.y - 4.0).abs() < 1e-2,
-            "{after} from {before}"
-        );
-        assert!((after.x - before.x).abs() < 1e-3 && (after.z - before.z).abs() < 1e-3);
-    }
-
-    #[test]
-    fn an_empty_editor_has_the_ground_and_no_handles_and_nothing_that_is_not_a_number() {
-        let editor = Editor::initial();
-        let ids = ids(&editor);
-        assert!(!has(&ids, "track/point-") && !has(&ids, "track/mid-"));
-        let view = view(&editor);
-        let at = view.world_position(TERRAIN).unwrap();
-        assert!(at.is_finite(), "{at}");
-    }
-
-    #[test]
-    fn pressing_the_ground_places_a_point_with_insert_and_otherwise_selects_the_terrain() {
-        let ground = |_| Vec3::new(10.0, GROUND_HEIGHT, 20.0);
-        let placed = drag(&empty(Tool::Insert), TERRAIN, ground);
-        assert_eq!(placed.design.control_points.len(), 1);
-        assert_eq!(
-            placed.design.control_points[0].position,
-            Vec3::new(10.0, 0.0, 20.0)
-        );
-        assert_eq!(placed.selected, Some(0));
-
-        let more = drag(&placed.with_tool(Tool::Insert), TERRAIN, |_| {
-            Vec3::new(-5.0, GROUND_HEIGHT, 3.0)
-        });
-        assert_eq!(more.design.control_points.len(), 2);
-        assert_eq!(more.selected, Some(1), "the newest point is selected");
-
-        let moving = drag(&empty(Tool::Move), TERRAIN, ground);
-        assert!(
-            moving.design.control_points.is_empty(),
-            "other tools place nothing"
-        );
+    fn pressing_the_terrain_clears_the_selection_and_closes_the_menu() {
+        let editor = with_tool(Tool::Move, Some(2)).with_menu(Some(crate::menu::Ring::Root));
+        let cleared = drag(&editor, TERRAIN, |at| at);
+        assert_eq!((cleared.selected, cleared.menu), (None, None));
     }
 }

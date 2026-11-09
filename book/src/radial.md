@@ -147,9 +147,9 @@ glyph::arrow(5.0, Dir2::ZERO)
 
 The hub rests as a small button in a corner, or pops up over the element the menu edits. When a tool edits an element in place, the hub shrinks to a chip above it.
 
-![Cozy Castle Menu](screenshots/screenshot_cozy_castle_menu.webp)
+![Cozy Castle](screenshots/screenshot_cozy_castle.webp)
 
-*Radial menu with tools ring. Run `cargo run --example cozy_castle_3d --features shapes-3d`.*
+*A radial menu choosing the piece to place. Run `cargo run --example cozy_castle_3d --features shapes-3d`.*
 
 ## Next Steps
 

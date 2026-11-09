@@ -18,10 +18,11 @@ use bevy_gradmesh::{
 };
 
 impl Geometry {
-    /// Builds the mesh of the geometry, flat for `Mesh2d` or in 3D otherwise.
+    /// Builds the mesh of the geometry, flat for `Mesh2d` or in 3D otherwise, or gives the handle
+    /// of the mesh when the application added it as an asset already.
     #[cfg_attr(not(feature = "gradmesh"), allow(unused_variables))]
-    fn build_mesh(&self, flat: bool) -> Mesh {
-        match self {
+    fn build_mesh(&self, flat: bool) -> Result<Mesh, &Handle<Mesh>> {
+        Ok(match self {
             Self::Rectangle => Rectangle::new(1.0, 1.0).into(),
             Self::Circle => Circle::new(0.5).mesh().resolution(64).into(),
             #[cfg(feature = "gradmesh")]
@@ -30,8 +31,9 @@ impl Geometry {
             Self::Grad(shape) => shape.build(),
             #[cfg(feature = "gradmesh")]
             Self::Sdf(shape) => Rectangle::from_size(shape.quad_size()).into(),
-            Self::Mesh(mesh) => mesh.mesh().clone(),
-        }
+            #[cfg(feature = "pbr")]
+            Self::Mesh(mesh) => return Err(mesh.handle()),
+        })
     }
 }
 
@@ -59,8 +61,12 @@ impl ShapeMeshes {
         {
             return handle;
         }
+        let mesh = match geometry.build_mesh(flat) {
+            Ok(mesh) => mesh,
+            Err(handle) => return handle.clone(),
+        };
         self.0.retain(|_, id| meshes.contains(*id));
-        let handle = meshes.add(geometry.build_mesh(flat));
+        let handle = meshes.add(mesh);
         self.0.insert(key, handle.id());
         handle
     }

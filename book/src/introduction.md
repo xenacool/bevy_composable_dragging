@@ -33,4 +33,4 @@ Bevy Composable Dragging follows these principles:
 
 | bevy_composable_dragging | Bevy | Rust |
 |--------------------------|------|------|
-| 0.1.x                    | 0.20 | 1.87+|
+| 0.3.x                    | 0.20 | 1.87+|

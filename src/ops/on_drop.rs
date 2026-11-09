@@ -1,7 +1,5 @@
 //! The `on_drop` modifiers.
 
-use std::sync::Arc;
-
 use crate::spec::DragSpec;
 
 impl<S: Clone + Send + Sync + 'static> DragSpec<S> {
@@ -14,11 +12,10 @@ impl<S: Clone + Send + Sync + 'static> DragSpec<S> {
     /// Keeps the preview but makes dropping switch to the state computed from the preview's
     /// drop state, for example to round a free position to a grid.
     #[must_use]
-    pub fn on_drop_with(self, transform: impl Fn(&S) -> S + Send + Sync + 'static) -> Self {
-        let transform = Arc::new(transform);
+    pub fn on_drop_with(self, transform: impl Fn(&S) -> S + Clone + Send + Sync + 'static) -> Self {
         Self::new(move |context| {
             let mut inner = self.compile(context);
-            let transform = Arc::clone(&transform);
+            let transform = transform.clone();
             Box::new(move |pointer| {
                 let mut frame = inner(pointer);
                 frame.drop_state = transform(&frame.drop_state);

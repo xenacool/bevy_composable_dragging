@@ -7,8 +7,9 @@
 [![License](https://img.shields.io/crates/l/bevy_composable_dragging.svg)](LICENSE-MIT)
 [![Last commit](https://img.shields.io/github/last-commit/xenacool/bevy_composable_dragging)](https://github.com/xenacool/bevy_composable_dragging/commits)
 
-Declarative, composable dragging for [Bevy](https://bevyengine.org) 0.20, ported from
-[Dragology](https://declarative-dragging.github.io).
+A generic drag-and-drop editor toolkit for 2D and 3D shapes in [Bevy](https://bevyengine.org) 0.20,
+ported from [Dragology](https://declarative-dragging.github.io). Gradient meshes are provided by
+[bevy_gradmesh](https://github.com/xenacool/bevy_gradmesh).
 
 You describe your interface as a pure function from state to a `View`, and attach a *drag spec* to
 every node that can be dragged. The engine renders the target states speculatively, finds the
@@ -45,6 +46,19 @@ or the [API reference on docs.rs](https://docs.rs/bevy_composable_dragging).
 Run any example with `cargo run --example <name>`; the gradient examples need their feature, for
 example `cargo run --example gradient_hanoi_3d --features shapes-3d`.
 
+## Demos in examples/
+
+![cozy_castle](https://raw.githubusercontent.com/xenacool/bevy_composable_dragging/main/screenshots/screenshot_cozy_castle.webp)
+
+`cozy_castle`: pieces are chosen from a radial menu and dragged onto one another, and every
+position along the drag is evaluated speculatively, so the rooms of the first floor change while
+the pointer is still down. An archway dropped on a swept wall carves a hole in it.
+
+![kart_racer_editor](https://raw.githubusercontent.com/xenacool/bevy_composable_dragging/main/screenshots/screenshot_kart_racer_editor.webp)
+
+`kart_racer_editor`: a track editor whose sweep road is scaled, whose curve is pulled by its
+handles while the road follows, and whose tools are picked from a radial menu.
+
 ## Gallery
 
 | | | |
@@ -59,10 +73,8 @@ example `cargo run --example gradient_hanoi_3d --features shapes-3d`.
 | `gradient_hanoi_3d`: `shapes-3d` | `gradient_kanban_2d`: `shapes-2d` | `hello`: minimal `state` example |
 | ![chain_of_cells](https://raw.githubusercontent.com/xenacool/bevy_composable_dragging/main/screenshots/screenshot_chain_of_cells.webp) | ![blend_square](https://raw.githubusercontent.com/xenacool/bevy_composable_dragging/main/screenshots/screenshot_blend_square.webp) | ![tactile_tessellations](https://raw.githubusercontent.com/xenacool/bevy_composable_dragging/main/screenshots/screenshot_tactile_tessellations.webp) |
 | `chain_of_cells`: `with_chaining`, overlay underline, drop transition | `blend_square`: `between_with` natural neighbor and sharpness | `tactile_tessellations`: edge-to-edge snaps with rotation |
-| ![gizmo_3d](https://raw.githubusercontent.com/xenacool/bevy_composable_dragging/main/screenshots/screenshot_gizmo_3d.webp) | ![cozy_castle](https://raw.githubusercontent.com/xenacool/bevy_composable_dragging/main/screenshots/screenshot_cozy_castle_menu.webp) | ![kart_racer_editor](https://raw.githubusercontent.com/xenacool/bevy_composable_dragging/main/screenshots/screenshot_kart_racer_editor_menu.webp) |
-| `gizmo_3d`: translate, rotate and scale gizmos in 3D drag spaces | `cozy_castle`: terrain, walls and radial menu | `kart_racer_editor`: track editor with sweep road and heightfield |
-| ![physics_lab](https://raw.githubusercontent.com/xenacool/bevy_composable_dragging/main/screenshots/screenshot_physics_lab.webp) | ![cozy_castle](https://raw.githubusercontent.com/xenacool/bevy_composable_dragging/main/screenshots/screenshot_cozy_castle.webp) | ![kart_racer_editor](https://raw.githubusercontent.com/xenacool/bevy_composable_dragging/main/screenshots/screenshot_kart_racer_editor.webp) |
-| `physics_lab`: 3D physics shapes dragged onto a grid, simulated with avian | `cozy_castle`: empty ground before building | `kart_racer_editor`: track view without menu |
+| ![gizmo_3d](https://raw.githubusercontent.com/xenacool/bevy_composable_dragging/main/screenshots/screenshot_gizmo_3d.webp) | ![physics_lab](https://raw.githubusercontent.com/xenacool/bevy_composable_dragging/main/screenshots/screenshot_physics_lab.webp) | |
+| `gizmo_3d`: translate, rotate and scale gizmos in 3D drag spaces | `physics_lab`: 3D physics shapes dragged onto a grid, simulated with avian | |
 
 ## Credits
 

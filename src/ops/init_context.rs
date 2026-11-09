@@ -7,7 +7,7 @@ use crate::spec::DragSpec;
 /// drag. This is the escape hatch for behaviors the other operators cannot express, and the
 /// counterpart of Dragology's `custom`; it is the same as [`DragSpec::new`].
 pub fn custom<S>(
-    compile: impl Fn(&DragContext<S>) -> DragBehavior<S> + Send + Sync + 'static,
+    compile: impl Fn(&DragContext<S>) -> DragBehavior<S> + Clone + Send + Sync + 'static,
 ) -> DragSpec<S> {
     DragSpec::new(compile)
 }
@@ -19,7 +19,7 @@ impl<S: Clone + Send + Sync + 'static> DragSpec<S> {
     #[must_use]
     pub fn with_init_context(
         self,
-        change: impl Fn(&DragContext<S>) -> DragContext<S> + Send + Sync + 'static,
+        change: impl Fn(&DragContext<S>) -> DragContext<S> + Clone + Send + Sync + 'static,
     ) -> Self {
         Self::new(move |context| self.compile(&change(context)))
     }

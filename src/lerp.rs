@@ -199,6 +199,7 @@ fn blend_pair<S>(a: &View<S>, b: &View<S>, pace: Pace, discrete: Option<&View<S>
             layer: node.layer,
             drag: None,
             drag_space: node.drag_space,
+            scene: None,
         });
     }
     blended

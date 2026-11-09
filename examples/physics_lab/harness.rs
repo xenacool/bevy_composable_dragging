@@ -80,6 +80,9 @@ impl Body {
 #[derive(Clone, Copy, Debug)]
 pub struct Reading {
     pub position: Vec3,
+    /// The centre of mass in the world, which is the point that locked axes hold, and which
+    /// differs from `position` when the mass is not centred on the origin of the body.
+    pub center: Vec3,
     pub velocity: Vec3,
     /// The lowest corner of the mesh in the world, or the bottom of the box around the collider
     /// when the body has no mesh. Unlike the box of a trimesh, which is the rotated box of its
@@ -188,6 +191,15 @@ impl Lab {
         built
     }
 
+    /// Holds the centre of mass of `entity` in its plane, as the lab does for the pieces it
+    /// shows, so that it can only move in x and y.
+    pub fn lock_depth(&mut self, entity: Entity) {
+        self.app
+            .world_mut()
+            .entity_mut(entity)
+            .insert(LockedAxes::new().lock_translation_z());
+    }
+
     /// Wakes `entity` and the bodies touching it, if they are asleep.
     pub fn wake(&mut self, entity: Entity) {
         let world = self.app.world_mut();
@@ -227,8 +239,12 @@ impl Lab {
                 .fold(f32::MAX, f32::min),
             None => body.get::<ColliderAabb>().map_or(position.y, |a| a.min.y),
         };
+        let local_center = body
+            .get::<ComputedCenterOfMass>()
+            .map_or(Vec3::ZERO, |c| c.0);
         Some(Reading {
             position,
+            center: position + rotation * local_center,
             velocity: body.get::<LinearVelocity>().map_or(Vec3::ZERO, |v| v.0),
             lowest,
             mass: body.get::<ComputedMass>().map_or(0.0, |m| m.value()),

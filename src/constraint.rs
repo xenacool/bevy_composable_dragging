@@ -3,26 +3,28 @@
 //! A [`Constraint`] reports how much a state violates it: zero when satisfied, growing with the
 //! amount of violation. The solver only needs that single number.
 
-use std::sync::Arc;
-
+use crate::owned::owned_fn;
 use crate::param::Param;
 
-type Violation<S> = dyn Fn(&S) -> f32 + Send + Sync;
+owned_fn! {
+    /// How much a state violates a [`Constraint`].
+    Violation<S>, ViolationCall, (state: &S) -> f32
+}
 
 /// A condition on a state that `vary` must keep satisfied.
-pub struct Constraint<S>(Arc<Violation<S>>);
+pub struct Constraint<S>(Violation<S>);
 
 impl<S> Clone for Constraint<S> {
     fn clone(&self) -> Self {
-        Self(Arc::clone(&self.0))
+        Self(self.0.clone())
     }
 }
 
 impl<S> Constraint<S> {
     /// Creates a constraint from a function that returns how much a state violates it: zero when
     /// satisfied, a positive amount otherwise.
-    pub fn new(violation: impl Fn(&S) -> f32 + Send + Sync + 'static) -> Self {
-        Self(Arc::new(violation))
+    pub fn new(violation: impl Fn(&S) -> f32 + Clone + Send + Sync + 'static) -> Self {
+        Self(Violation::new(violation))
     }
 
     /// A constraint that every state satisfies.
@@ -33,7 +35,7 @@ impl<S> Constraint<S> {
 
     /// How much `state` violates the constraint; zero when it is satisfied.
     pub fn violation(&self, state: &S) -> f32 {
-        (self.0)(state)
+        self.0.call(state)
     }
 }
 

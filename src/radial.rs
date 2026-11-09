@@ -24,8 +24,6 @@
 //! [`push_menu`] then adds the whole menu to a view.
 //!
 //! ```no_run
-//! use std::sync::Arc;
-//!
 //! use bevy::prelude::*;
 //! use bevy_composable_dragging::hud::{HudHost, Layout, Screen, Theme};
 //! use bevy_composable_dragging::radial::{
@@ -131,7 +129,7 @@
 //! fn view(paint: &Paint) -> View<Paint> {
 //!     let mut view = View::new();
 //!     let layout = Layout::new(paint.screen());
-//!     push_menu(&mut view, &Arc::new(paint.clone()), &layout, &Theme::default());
+//!     push_menu(&mut view, paint, &layout, &Theme::default());
 //!     view
 //! }
 //!
@@ -143,14 +141,12 @@
 //!     .run();
 //! ```
 
-use std::collections::HashSet;
-use std::marker::PhantomData;
-use std::sync::Arc;
-
 use bevy::camera::visibility::RenderLayers;
 use bevy::prelude::*;
 use bevy::sprite::Anchor;
 use bevy_gradmesh::{Shape, Style};
+use std::collections::HashSet;
+use std::marker::PhantomData;
 
 use crate::hud::{self, Footprint, HudHost, Layout, Theme};
 use crate::ops::{button, state};
@@ -361,20 +357,20 @@ pub fn petal_id<S: RadialHost>(ring: &S::Ring, item: &ItemOf<S>) -> String {
 /// no presses and is not hit by the pointer.
 fn push_hub<S: RadialHost>(
     view: &mut View<S>,
-    snapshot: &Arc<S>,
+    snapshot: &S,
     layout: &Layout,
     theme: &Theme,
     id: &str,
     (at, scale): (Vec2, f32),
 ) {
     let radius = layout.hub_radius();
-    let pressed = Arc::clone(snapshot);
+    let pressed = snapshot.hub_pressed();
     let disc = theme
         .disc(id, radius, theme.hub, at.extend(hud::HUB_DEPTH))
         .scaled(Vec3::splat(scale));
     view.push(if scale > HIDDEN {
         disc.draggable_in(DragSpace::world_plane(0.0), move || {
-            button(pressed.hub_pressed(), radius)
+            button(pressed.clone(), radius)
         })
     } else {
         disc.pickable(false)
@@ -415,7 +411,7 @@ fn pill_size(label: &str, layout: &Layout) -> Vec2 {
 /// presses, unless the petal is hidden, and then it is not hit at all.
 fn push_petal<S: RadialHost>(
     view: &mut View<S>,
-    snapshot: &Arc<S>,
+    snapshot: &S,
     layout: &Layout,
     theme: &Theme,
     (ring, item): (&S::Ring, &ItemOf<S>),
@@ -425,14 +421,13 @@ fn push_petal<S: RadialHost>(
     let radius = layout.petal_radius();
     let unit = layout.unit();
     let accent = item.accent();
-    let pressed = Arc::clone(snapshot);
-    let chosen = item.clone();
+    let pressed = item.press(snapshot);
     let disc = theme
         .disc(id.clone(), radius, accent, at.extend(hud::PETAL_DEPTH))
         .scaled(Vec3::splat(scale));
     view.push(if scale > HIDDEN {
         disc.draggable_in(DragSpace::world_plane(0.0), move || {
-            button(chosen.press(&pressed), radius)
+            button(pressed.clone(), radius)
         })
     } else {
         disc.pickable(false)
@@ -496,23 +491,18 @@ fn status_panel<S: RadialHost>(snapshot: &S, layout: &Layout) -> (Vec2, Vec2) {
 }
 
 /// Adds the status panel to `view`. It takes presses, so none fall through it to the scene.
-fn push_status<S: RadialHost>(
-    view: &mut View<S>,
-    snapshot: &Arc<S>,
-    layout: &Layout,
-    theme: &Theme,
-) {
-    let (size, center) = status_panel(snapshot.as_ref(), layout);
+fn push_status<S: RadialHost>(view: &mut View<S>, snapshot: &S, layout: &Layout, theme: &Theme) {
+    let (size, center) = status_panel(snapshot, layout);
     let [plate, border] = theme.panel("menu/status", size, center, layout);
-    let held = Arc::clone(snapshot);
-    view.push(plate.draggable_in(DragSpace::world_plane(0.0), move || state(S::clone(&held))));
+    let held = snapshot.clone();
+    view.push(plate.draggable_in(DragSpace::world_plane(0.0), move || state(held.clone())));
     view.push(border.pickable(false));
 }
 
 /// Adds the petal of the armed item above the hub at `center`. Pressing it disarms the item.
 fn push_armed<S: RadialHost>(
     view: &mut View<S>,
-    snapshot: &Arc<S>,
+    snapshot: &S,
     layout: &Layout,
     theme: &Theme,
     center: Vec2,
@@ -523,12 +513,12 @@ fn push_armed<S: RadialHost>(
     let radius = layout.petal_radius();
     let accent = item.accent();
     let at = layout.keep_inside(center + Vec2::Y * ARMED_LIFT * layout.unit());
-    let disarm = Arc::clone(snapshot);
+    let disarm = snapshot.disarmed();
     view.push(
         theme
             .disc("menu/armed", radius, accent, at.extend(hud::PETAL_DEPTH))
             .draggable_in(DragSpace::world_plane(0.0), move || {
-                button(disarm.disarmed(), radius)
+                button(disarm.clone(), radius)
             }),
     );
     view.push(
@@ -561,12 +551,7 @@ fn push_armed<S: RadialHost>(
 ///
 /// The ids of its nodes start with `menu/`: `menu/status`, `menu/hub`, `menu/pop`, `menu/armed`
 /// and `menu/<ring>/<item>` (see [`petal_id`]), each with its parts as children.
-pub fn push_menu<S: RadialHost>(
-    view: &mut View<S>,
-    snapshot: &Arc<S>,
-    layout: &Layout,
-    theme: &Theme,
-) {
+pub fn push_menu<S: RadialHost>(view: &mut View<S>, snapshot: &S, layout: &Layout, theme: &Theme) {
     let center = snapshot.pop_center(layout);
     let popped = snapshot.is_popped();
     push_status(view, snapshot, layout, theme);
@@ -972,7 +957,7 @@ mod tests {
     fn view(demo: &Demo) -> View<Demo> {
         let mut view = View::new();
         let layout = Layout::new(demo.screen());
-        push_menu(&mut view, &Arc::new(demo.clone()), &layout, &theme());
+        push_menu(&mut view, demo, &layout, &theme());
         view
     }
 
@@ -1002,8 +987,8 @@ mod tests {
     fn press(demo: &Demo, node: &str, to: Vec3) -> Demo {
         let view = view(demo);
         let node_ref = view.get(node).unwrap();
-        let spec = (node_ref.drag.as_ref().unwrap())();
-        let context = DragContext::new(Arc::new(self::view), node.to_owned().into(), demo.clone())
+        let spec = node_ref.drag_spec(demo).unwrap();
+        let context = DragContext::new(self::view, node.to_owned().into(), demo.clone())
             .with_space(node_ref.drag_space.unwrap());
         spec.compile(&context)(Pointer::at(to)).drop_state
     }
@@ -1210,8 +1195,8 @@ mod tests {
         let at = view(&start).world_position(id).unwrap();
         assert_eq!(press(&start, id, at + Vec3::X * 500.0), start);
         let view_fn = view(&start);
-        let spec = (view_fn.get(id).unwrap().drag.as_ref().unwrap())();
-        let context = DragContext::new(Arc::new(self::view), id.to_owned().into(), start.clone())
+        let spec = view_fn.get(id).unwrap().drag_spec(&start).unwrap();
+        let context = DragContext::new(self::view, id.to_owned().into(), start.clone())
             .with_space(view_fn.get(id).unwrap().drag_space.unwrap());
         let held = spec.compile(&context)(Pointer::at(at + Vec3::X * 2.0)).view;
         for node in view_fn.nodes() {

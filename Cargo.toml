@@ -1,6 +1,6 @@
 [package]
 name = "bevy_composable_dragging"
-version = "0.2.0"
+version = "0.3.0" # Don't forget to update README.md and book/
 authors = ["Jessica Collins (https://github.com/xenacool)"]
 edition = "2024"
 rust-version = "1.87"
@@ -13,9 +13,11 @@ exclude = ["screenshots/", "reference/", "target/", "Cargo.lock", "Makefile", "b
 [profile.dev]
 codegen-units = 8
 
-# Bevy example binaries exceed the macOS linker's compact unwind table limit; the message is harmless.
 [lints.rust]
+# Bevy example binaries exceed the macOS linker's compact unwind table limit; the message is harmless.
 linker_messages = "allow"
+# No `unsafe` anywhere in the library, the examples or the tests, and no `allow` can lift this.
+unsafe_code = "forbid"
 
 [lints.clippy]
 all = { level = "warn", priority = -1 }
@@ -43,7 +45,7 @@ shapes-2d = ["gradmesh"]
 shapes-3d = ["gradmesh"]
 
 [dependencies]
-bevy = { version = "0.20", default-features = false, features = ["bevy_color"] }
+bevy = { version = "0.20", default-features = false, features = ["bevy_color", "bevy_scene"] }
 bevy_gradmesh = { version = "0.3.1", optional = true }
 
 # Examples need windowing, tonemapping LUT textures and PNG support which the library does not require.
@@ -151,3 +153,8 @@ name = "physics_lab"
 path = "examples/physics_lab/main.rs"
 required-features = ["shapes-3d"]
 test = true
+
+[[test]]
+name = "performance"
+path = "tests/performance.rs"
+required-features = ["gradmesh"]

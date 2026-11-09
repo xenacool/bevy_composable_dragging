@@ -1,7 +1,5 @@
 //! The `during` modifier.
 
-use std::sync::Arc;
-
 use crate::spec::DragSpec;
 
 impl<S: Clone + Send + Sync + 'static> DragSpec<S> {
@@ -11,12 +9,11 @@ impl<S: Clone + Send + Sync + 'static> DragSpec<S> {
     /// is measured again from the dragged node of the transformed preview. A node that is missing
     /// from the transformed preview gives an infinite gap.
     #[must_use]
-    pub fn during(self, transform: impl Fn(&S) -> S + Send + Sync + 'static) -> Self {
-        let transform = Arc::new(transform);
+    pub fn during(self, transform: impl Fn(&S) -> S + Clone + Send + Sync + 'static) -> Self {
         Self::new(move |context| {
             let mut inner = self.compile(context);
             let context = context.clone();
-            let transform = Arc::clone(&transform);
+            let transform = transform.clone();
             Box::new(move |pointer| {
                 let mut frame = inner(pointer);
                 let transformed = transform(&frame.drop_state);

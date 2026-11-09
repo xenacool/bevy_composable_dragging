@@ -77,6 +77,7 @@ pub(crate) fn sync_nodes<S: Clone + Send + Sync + 'static>(
         return;
     }
     let view = model.view();
+    let settled = model.settled_view();
     let opacities = view.effective_opacities();
     let ids: HashSet<&str> = view.nodes().iter().map(|node| node.id.as_ref()).collect();
     let mut reparent: Vec<(Entity, Option<NodeId>)> = Vec::new();
@@ -134,7 +135,13 @@ pub(crate) fn sync_nodes<S: Clone + Send + Sync + 'static>(
                 reparent.push((entity, parent));
             }
         } else {
-            let mut spawned = commands.spawn((
+            let mut spawned = commands.spawn_empty();
+            // The scene goes on first, so that what the engine writes is written over it.
+            if let Some(scene) = settled.get(&node.id).and_then(|node| node.scene.as_ref()) {
+                let apply = scene();
+                spawned.queue(move |mut entity: EntityWorldMut| apply(&mut entity));
+            }
+            spawned.insert((
                 Name::new(node.id.to_string()),
                 node.transform,
                 DragNode::<S> {
@@ -197,6 +204,7 @@ pub(crate) fn sync_nodes<S: Clone + Send + Sync + 'static>(
 #[cfg(all(test, feature = "gradmesh"))]
 mod tests {
     use bevy::asset::AssetPlugin;
+    use bevy::scene::ScenePlugin;
     use bevy::sprite_render::{ColorMaterial, MeshMaterial2d};
     use bevy_gradmesh::{
         GradMeshMaterial, GradMeshMaterial2d, GradMeshMaterialPool, SdfMaterial2d,
@@ -287,6 +295,95 @@ mod tests {
                 .entity(round)
                 .contains::<MeshMaterial2d<GradMeshMaterial2d>>()
         );
+    }
+
+    #[derive(Component, Default, Clone)]
+    struct Mark(u32);
+
+    #[derive(Resource, Default)]
+    struct Pings(u32);
+
+    #[derive(EntityEvent)]
+    struct Ping {
+        entity: Entity,
+    }
+
+    fn counting_view(step: u32) -> View<u32> {
+        View::new().with(
+            ViewNode::sphere("box", 0.5)
+                .at(Vec3::X * step as f32)
+                .with_scene(|| {
+                    bsn! {
+                        Mark(0)
+                        Transform::from_xyz(9.0, 9.0, 9.0)
+                        on(|_: On<Ping>, mut pings: ResMut<Pings>| pings.0 += 1)
+                    }
+                }),
+        )
+    }
+
+    fn scene_app() -> App {
+        let mut app = App::new();
+        app.add_plugins((TaskPoolPlugin::default(), AssetPlugin::default()))
+            .add_plugins(ScenePlugin)
+            .init_asset::<Mesh>()
+            .init_asset::<StandardMaterial>()
+            .init_asset::<GradMeshMaterial>()
+            .init_asset::<ColorMaterial>()
+            .init_asset::<GradMeshMaterial2d>()
+            .init_asset::<SdfMaterial2d>()
+            .init_resource::<GradMeshMaterialPool>()
+            .init_resource::<ShapeMeshes>()
+            .init_resource::<NodeEntities<u32>>()
+            .init_resource::<Pings>()
+            .insert_resource(Rendering::Spatial)
+            .insert_resource(DragModel::new(0_u32, |step| counting_view(*step)))
+            .add_systems(Update, sync_nodes::<u32>);
+        app.update();
+        app
+    }
+
+    #[test]
+    fn the_scene_of_a_node_goes_on_its_entity_below_what_the_engine_writes() {
+        let mut app = scene_app();
+        let entity = entity_of(&mut app, "box");
+        let entity = app.world().entity(entity);
+        assert!(entity.contains::<Mark>());
+        assert_eq!(entity.get::<Transform>().unwrap().translation, Vec3::ZERO);
+    }
+
+    #[test]
+    fn the_components_and_observers_of_a_scene_survive_every_change_of_state() {
+        let mut app = scene_app();
+        let entity = entity_of(&mut app, "box");
+        app.world_mut().entity_mut(entity).insert(Mark(7));
+        for step in 1..=10_u32 {
+            app.world_mut()
+                .resource_mut::<DragModel<u32>>()
+                .set_state(step);
+            app.update();
+            assert_eq!(entity_of(&mut app, "box"), entity);
+            let node = app.world().entity(entity);
+            assert_eq!(node.get::<Mark>().unwrap().0, 7);
+            assert_eq!(node.get::<Transform>().unwrap().translation.x, step as f32);
+        }
+        app.world_mut().trigger(Ping { entity });
+        assert_eq!(app.world().resource::<Pings>().0, 1);
+    }
+
+    #[test]
+    fn a_scene_function_never_runs_for_a_view_that_is_only_evaluated() {
+        let ghost = |step: &u32| -> View<u32> {
+            View::new().with(
+                ViewNode::sphere("ghost", 0.5)
+                    .at(Vec3::X * *step as f32)
+                    .with_scene(|| -> () { panic!("a preview built a scene") }),
+            )
+        };
+        let (from, to) = (ghost(&0), ghost(&1));
+        let blended = crate::lerp_views(&from, &to, 0.5);
+        assert_eq!(blended.len(), 1);
+        assert_eq!(from.rebind::<u8>().len(), 1);
     }
 
     fn panel_view() -> View<()> {
@@ -414,7 +511,7 @@ mod tests {
         let mut view = View::new();
         view.push(ViewNode::mesh(
             "terrain",
-            MeshGeometry::new(1, Mesh::from(Rectangle::new(4.0, 4.0))),
+            MeshGeometry::new(Handle::default(), &Mesh::from(Rectangle::new(4.0, 4.0))),
         ));
         view
     }
@@ -435,28 +532,19 @@ mod tests {
     }
 
     #[test]
-    fn meshes_of_your_own_share_an_asset_by_key_and_a_new_key_frees_the_old_one() {
-        let mesh =
-            |key| Geometry::Mesh(MeshGeometry::new(key, Mesh::from(Rectangle::new(1.0, 1.0))));
+    fn a_mesh_of_your_own_is_drawn_with_its_own_asset_and_no_copy() {
         let mut shapes = ShapeMeshes::default();
         let mut meshes = Assets::<Mesh>::default();
-        let first = shapes.get(&mesh(1), false, &mut meshes);
-        let again = shapes.get(&mesh(1), false, &mut meshes);
-        assert_eq!(first.id(), again.id(), "the same key shares the mesh");
-        let flat = shapes.get(&mesh(1), true, &mut meshes);
-        assert_ne!(
-            first.id(),
-            flat.id(),
-            "flat and spatial copies are separate"
-        );
-        let other = shapes.get(&mesh(2), false, &mut meshes);
-        assert_ne!(first.id(), other.id());
-        let old = first.id();
-        drop((first, again));
-        meshes.remove(old);
-        let rebuilt = shapes.get(&mesh(1), false, &mut meshes);
-        assert_ne!(rebuilt.id(), old, "a freed mesh is built again when needed");
-        assert!(meshes.contains(rebuilt.id()));
+        let geometry = MeshGeometry::add(&mut meshes, Mesh::from(Rectangle::new(1.0, 1.0)));
+        let geometry = Geometry::Mesh(geometry);
+        let Geometry::Mesh(own) = &geometry else {
+            unreachable!("built as a mesh");
+        };
+        let spatial = shapes.get(&geometry, false, &mut meshes);
+        let flat = shapes.get(&geometry, true, &mut meshes);
+        assert_eq!(spatial.id(), own.handle().id(), "the asset of the app");
+        assert_eq!(flat.id(), spatial.id(), "flat and spatial share it");
+        assert_eq!(meshes.len(), 1, "nothing was built or copied");
     }
 
     fn hud_over_scene() -> View<()> {

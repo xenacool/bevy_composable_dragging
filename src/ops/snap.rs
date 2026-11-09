@@ -1,8 +1,7 @@
 //! The `with_snap_radius` modifier.
 
-use std::sync::Arc;
-
 use crate::behavior::Chaining;
+use crate::owned::owned_fn;
 use crate::spec::DragSpec;
 
 /// Options of [`with_snap_radius_options`](DragSpec::with_snap_radius_options). The defaults
@@ -40,8 +39,10 @@ impl SnapOptions {
     }
 }
 
-/// Decides whether a drop state differs from the start state, for chaining.
-type Differs<S> = Arc<dyn Fn(&S, &S) -> bool + Send + Sync>;
+owned_fn! {
+    /// Decides whether a drop state differs from the start state, for chaining.
+    Differs<S>, DiffersCall, (drop_state: &S, start: &S) -> bool
+}
 
 impl<S: Clone + Send + Sync + 'static> DragSpec<S> {
     /// Snaps the preview to the drop state's own layout once the dragged node is within `radius`
@@ -66,7 +67,7 @@ impl<S: Clone + Send + Sync + 'static> DragSpec<S> {
             let chain = chain.clone();
             Box::new(move |pointer| {
                 let mut frame = inner(pointer);
-                let settled = view_fn(&frame.drop_state);
+                let settled = view_fn.call(&frame.drop_state);
                 let snapped = matches!(
                     (
                         frame.view.world_position(&dragged),
@@ -85,7 +86,7 @@ impl<S: Clone + Send + Sync + 'static> DragSpec<S> {
                 if let Some(differs) = &chain
                     && snapped
                     && frame.chain.is_none()
-                    && differs(&frame.drop_state, &start)
+                    && differs.call(&frame.drop_state, &start)
                 {
                     let mut chaining = Chaining::new();
                     chaining.transition = transition;
@@ -103,7 +104,7 @@ impl<S: Clone + PartialEq + Send + Sync + 'static> DragSpec<S> {
     /// so the state must be comparable.
     #[must_use]
     pub fn with_snap_radius_options(self, radius: f32, options: SnapOptions) -> Self {
-        let chain: Option<Differs<S>> = options.chain.then(|| Arc::new(|a: &S, b: &S| a != b) as _);
+        let chain: Option<Differs<S>> = options.chain.then(|| Differs::new(|a: &S, b: &S| a != b));
         self.snapping(radius, options.transition, chain)
     }
 }

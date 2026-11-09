@@ -71,8 +71,6 @@ pub struct AutoScreenshotPlugin {
     animation: bool,
     /// Maximum number of frames to capture for animation.
     animation_frames: u32,
-    /// If set, capture a second screenshot after the first is saved, using this filename.
-    second_shot: Option<String>,
 }
 
 impl AutoScreenshotPlugin {
@@ -88,18 +86,7 @@ impl AutoScreenshotPlugin {
             wait_frames: 1,
             animation: false,
             animation_frames: 600,
-            second_shot: None,
         }
-    }
-
-    /// Set a second screenshot captured after the first is saved.
-    ///
-    /// The caller is responsible for changing the state (e.g., opening a radial menu)
-    /// between the two shots. The second shot uses the same wait-frames logic so the
-    /// view has time to settle after the state change.
-    pub fn with_second_shot(mut self, filename: impl Into<String>) -> Self {
-        self.second_shot = Some(filename.into());
-        self
     }
 
     /// Set the title displayed in the screenshot overlay banner.
@@ -170,17 +157,6 @@ impl Plugin for AutoScreenshotPlugin {
                 Update,
                 (wait_for_animation_frames, quit_after_animation_saved).chain(),
             );
-        } else if self.second_shot.is_some() {
-            app.insert_resource(SecondShotFilename(self.second_shot.clone().unwrap()))
-                .add_systems(
-                    Update,
-                    (
-                        wait_for_first_frame,
-                        capture_second_shot,
-                        quit_after_second_shot_saved,
-                    )
-                        .chain(),
-                );
         } else {
             app.add_systems(
                 Update,
@@ -252,32 +228,13 @@ struct AutoScreenshotFilename(String);
 struct WaitFrames(u32);
 
 /// Tracks the screenshot lifecycle: pending -> triggered -> saved -> quit.
-///
-/// Exposed so examples can react to the first screenshot being saved, for example
-/// to open a radial menu before the second shot is captured.
 #[derive(Resource, Default)]
-pub struct ScreenshotState {
+struct ScreenshotState {
     /// `true` after we spawned the `Screenshot` entity.
-    pub triggered: bool,
+    triggered: bool,
     /// `true` after the `ScreenshotCaptured` observer ran and the file is saved.
-    pub saved: bool,
-    /// `true` after the second shot has been triggered.
-    pub second_triggered: bool,
-    /// `true` after the second shot is saved.
-    pub second_saved: bool,
-    /// Set by the example after it completes the state change (e.g., opens a menu).
-    /// The second shot fires only after this flag is `true`, establishing a happens-before
-    /// relationship: the first screenshot is saved -> the example changes state and signals
-    /// readiness -> the second screenshot is captured.
-    pub ready_for_second_shot: bool,
-    /// The frame count when `ready_for_second_shot` was set. The second shot waits at least one
-    /// frame after this so the changed state (e.g., an open menu) is actually rendered.
-    pub ready_frame: u32,
+    saved: bool,
 }
-
-/// Filename of the second screenshot shot.
-#[derive(Resource)]
-struct SecondShotFilename(String);
 
 /// Frame rate of animation captures, in frames per second of simulated time.
 const ANIMATION_FPS: f32 = 30.0;
@@ -340,62 +297,6 @@ fn quit_after_screenshot_saved(
 ) {
     if state.saved {
         info!("Exiting after screenshot");
-        app_exit.write(AppExit::Success);
-    }
-}
-
-/// After the first screenshot is saved and the example signals readiness, capture the second shot.
-///
-/// The example changes state (e.g., opens a radial menu) when `saved` becomes `true`, then sets
-/// `ready_for_second_shot`. This system fires only after both conditions are met and at least one
-/// frame has passed since readiness was signaled, establishing a happens-before relationship:
-/// first screenshot saved -> state changed -> ready signaled -> one frame rendered -> second screenshot.
-fn capture_second_shot(
-    mut state: ResMut<ScreenshotState>,
-    filename: Res<SecondShotFilename>,
-    mut commands: Commands,
-    frame_count: Res<FrameCount>,
-    window_query: Query<Entity, With<Window>>,
-) {
-    if state.second_triggered {
-        return;
-    }
-    // Wait until the first screenshot is saved AND the example has signaled readiness.
-    if !state.saved || !state.ready_for_second_shot {
-        return;
-    }
-    // Wait at least one frame after readiness so the changed state is rendered.
-    if frame_count.0 <= state.ready_frame {
-        return;
-    }
-    if window_query.is_empty() {
-        return;
-    }
-    state.second_triggered = true;
-    info!("Taking second screenshot -> {}", filename.0);
-    let path = filename.0.clone();
-    commands
-        .spawn(Screenshot::primary_window())
-        .observe(save_to_disk(path.clone()))
-        .observe(move |_trigger: On<ScreenshotCaptured>| {
-            info!("Second screenshot saved to {}", path);
-        })
-        .observe(mark_second_shot_done);
-}
-
-/// Observer on the second screenshot entity: marks it as saved.
-fn mark_second_shot_done(_trigger: On<ScreenshotCaptured>, mut state: ResMut<ScreenshotState>) {
-    state.second_saved = true;
-    info!("Second screenshot capture complete");
-}
-
-/// Exit after both screenshots are saved.
-fn quit_after_second_shot_saved(
-    state: Res<ScreenshotState>,
-    mut app_exit: bevy::ecs::message::MessageWriter<AppExit>,
-) {
-    if state.second_saved {
-        info!("Exiting after second screenshot");
         app_exit.write(AppExit::Success);
     }
 }

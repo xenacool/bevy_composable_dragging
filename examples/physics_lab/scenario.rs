@@ -1,6 +1,8 @@
 //! What a trial is made of: the shapes of the palette, the colliders built from their meshes and
 //! the rig they are stepped in.
 
+use std::panic::AssertUnwindSafe;
+
 use avian3d::prelude::Collider;
 use bevy::prelude::*;
 use bevy_gradmesh::{Shape, ShapeDetail, ShapePart};
@@ -120,12 +122,18 @@ impl ColliderKind {
     }
 
     /// The collider of `mesh`, or `None` when avian cannot build one from it.
+    ///
+    /// The hull routine of avian unwraps an error on points that are too close to flat or to
+    /// each other for it to finish, and it has no builder that reports the error, so a panic
+    /// there is caught and counts as a mesh that avian cannot build a collider from.
     pub fn build(self, mesh: &Mesh) -> Option<Collider> {
-        match self {
+        std::panic::catch_unwind(AssertUnwindSafe(|| match self {
             Self::Trimesh => Collider::trimesh_from_mesh(mesh),
             Self::ConvexHull => Collider::convex_hull_from_mesh(mesh),
             Self::Decomposition => Collider::convex_decomposition_from_mesh(mesh),
-        }
+        }))
+        .ok()
+        .flatten()
     }
 }
 

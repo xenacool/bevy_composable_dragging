@@ -11,11 +11,11 @@
 //! drag started, so steps are steps of change, not positions on a fixed grid.
 
 use std::f32::consts::{PI, TAU};
-use std::sync::Arc;
 
 use bevy::math::{Vec2, Vec3};
 
 use crate::behavior::{DragContext, Frame};
+use crate::owned::owned_fn;
 use crate::space::{DragSpace, Pointer};
 use crate::spec::DragSpec;
 
@@ -71,11 +71,15 @@ impl Snap {
     }
 }
 
-/// Turns the state a drag started from and a measured value into a new state.
-type Apply<S, V> = Arc<dyn Fn(&S, V) -> S + Send + Sync>;
+owned_fn! {
+    /// Turns the state a drag started from and a measured value into a new state.
+    Apply<S, V>, ApplyCall, (state: &S, value: V) -> S
+}
 
-/// Builds the spec of a value operator from its [`Snap`].
-type Build<S> = Arc<dyn Fn(Snap) -> DragSpec<S> + Send + Sync>;
+owned_fn! {
+    /// Builds the spec of a value operator from its [`Snap`].
+    Build<S>, BuildCall, (snap: Snap) -> DragSpec<S>
+}
 
 /// A value operator whose snapping can still be chosen: turn it into a [`DragSpec`] with
 /// `into()`, or set a [`Snap`] first with [`snap`](Self::snap).
@@ -87,7 +91,7 @@ pub struct Tracked<S> {
 impl<S> Clone for Tracked<S> {
     fn clone(&self) -> Self {
         Self {
-            build: Arc::clone(&self.build),
+            build: self.build.clone(),
             snap: self.snap,
         }
     }
@@ -104,17 +108,19 @@ impl<S> Tracked<S> {
 
 impl<S> From<Tracked<S>> for DragSpec<S> {
     fn from(tracked: Tracked<S>) -> Self {
-        (tracked.build)(tracked.snap)
+        tracked.build.call(tracked.snap)
     }
 }
 
 /// Measures a pointer into the shown and the committed value of one drag.
 type Measure<V> = Box<dyn FnMut(&Pointer) -> (V, V) + Send + Sync>;
 
-/// Starts a [`Measure`] for a drag in `space` of a node that started at `anchor`, grabbed at the
-/// point `grab_offset` away from it. The pointers it measures are the grab position of the node,
-/// that is the pointer with `grab_offset` taken off.
-type StartMeasure<V> = Arc<dyn Fn(&DragSpace, Vec3, Vec3) -> Measure<V> + Send + Sync>;
+owned_fn! {
+    /// Starts a [`Measure`] for a drag in `space` of a node that started at `anchor`, grabbed at
+    /// the point `grab_offset` away from it. The pointers it measures are the grab position of
+    /// the node, that is the pointer with `grab_offset` taken off.
+    StartMeasure<V>, StartMeasureCall, (space: &DragSpace, anchor: Vec3, grab_offset: Vec3) -> Measure<V>
+}
 
 /// The spec of a drag that applies a measured value to the state.
 fn value_spec<S, V>(apply: Apply<S, V>, start: StartMeasure<V>) -> DragSpec<S>
@@ -128,14 +134,14 @@ where
         let anchor = context
             .anchor_in(&context.render(&state))
             .map_or(space.origin(), |anchor| space.project_point(anchor));
-        let mut measure = start(&space, anchor, context.grab_offset());
-        let apply = Arc::clone(&apply);
+        let mut measure = start.call(&space, anchor, context.grab_offset());
+        let apply = apply.clone();
         let context = context.clone();
         Box::new(move |pointer| {
             let (shown, committed) = measure(&pointer);
             Frame::new(
-                context.render(&apply(&state, shown)),
-                apply(&state, committed),
+                context.render(&apply.call(&state, shown)),
+                apply.call(&state, committed),
                 0.0,
             )
         })
@@ -143,21 +149,19 @@ where
 }
 
 fn tracked<S, V>(
-    apply: impl Fn(&S, V) -> S + Send + Sync + 'static,
-    start: impl Fn(&DragSpace, Vec3, Vec3, Snap) -> Measure<V> + Send + Sync + 'static,
+    apply: impl Fn(&S, V) -> S + Clone + Send + Sync + 'static,
+    start: impl Fn(&DragSpace, Vec3, Vec3, Snap) -> Measure<V> + Clone + Send + Sync + 'static,
 ) -> Tracked<S>
 where
     S: Clone + Send + Sync + 'static,
     V: Copy + Send + Sync + 'static,
 {
-    let apply: Apply<S, V> = Arc::new(apply);
-    let start = Arc::new(start);
     Tracked {
-        build: Arc::new(move |snap| {
-            let start = Arc::clone(&start);
+        build: Build::new(move |snap| {
+            let start = start.clone();
             value_spec(
-                Arc::clone(&apply),
-                Arc::new(move |space, anchor, grab| start(space, anchor, grab, snap)),
+                Apply::new(apply.clone()),
+                StartMeasure::new(move |space, anchor, grab| start(space, anchor, grab, snap)),
             )
         }),
         snap: Snap::NONE,
@@ -168,7 +172,7 @@ where
 /// [`Axis`](DragSpace::Axis) space. `apply` turns the distance travelled since the start of the
 /// drag into a new state.
 pub fn along_axis<S: Clone + Send + Sync + 'static>(
-    apply: impl Fn(&S, f32) -> S + Send + Sync + 'static,
+    apply: impl Fn(&S, f32) -> S + Clone + Send + Sync + 'static,
 ) -> Tracked<S> {
     tracked(apply, |space, anchor, _, snap| {
         let space = *space;
@@ -182,7 +186,7 @@ pub fn along_axis<S: Clone + Send + Sync + 'static>(
 /// a drag may spin more than once. `apply` turns the angle turned since the start of the drag
 /// into a new state.
 pub fn around_axis<S: Clone + Send + Sync + 'static>(
-    apply: impl Fn(&S, f32) -> S + Send + Sync + 'static,
+    apply: impl Fn(&S, f32) -> S + Clone + Send + Sync + 'static,
 ) -> Tracked<S> {
     tracked(apply, |space, anchor, grab, snap| {
         let space = *space;
@@ -207,7 +211,7 @@ pub fn around_axis<S: Clone + Send + Sync + 'static>(
 /// the offset since the start of the drag into a new state. Steps apply to each of the two axes
 /// of the plane separately.
 pub fn across_plane<S: Clone + Send + Sync + 'static>(
-    apply: impl Fn(&S, Vec3) -> S + Send + Sync + 'static,
+    apply: impl Fn(&S, Vec3) -> S + Clone + Send + Sync + 'static,
 ) -> Tracked<S> {
     tracked(apply, |space, anchor, _, snap| {
         let space = *space;
@@ -252,7 +256,7 @@ mod tests {
     }
 
     fn context(space: DragSpace, start: Piece) -> DragContext<Piece> {
-        DragContext::new(Arc::new(view), "item".into(), start).with_space(space)
+        DragContext::new(view, "item".into(), start).with_space(space)
     }
 
     fn x_axis() -> DragSpace {

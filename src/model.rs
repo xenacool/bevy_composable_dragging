@@ -1,7 +1,5 @@
 //! The interface state together with the view that is currently shown.
 
-use std::sync::Arc;
-
 use bevy::ecs::entity::Entity;
 use bevy::ecs::resource::Resource;
 use bevy::math::{Dir3, Vec3};
@@ -61,12 +59,12 @@ pub struct DragModel<S: Send + Sync + 'static> {
 
 impl<S: Clone + Send + Sync + 'static> DragModel<S> {
     /// Creates a model that shows `state` rendered with `view_fn`.
-    pub fn new(state: S, view_fn: impl Fn(&S) -> View<S> + Send + Sync + 'static) -> Self {
-        Self::from_view_fn(state, Arc::new(view_fn))
+    pub fn new(state: S, view_fn: impl Fn(&S) -> View<S> + Clone + Send + Sync + 'static) -> Self {
+        Self::from_view_fn(state, ViewFn::new(view_fn))
     }
 
     pub(crate) fn from_view_fn(state: S, view_fn: ViewFn<S>) -> Self {
-        let shown = view_fn(&state);
+        let shown = view_fn.call(&state);
         Self {
             state,
             view_fn,
@@ -88,13 +86,25 @@ impl<S: Clone + Send + Sync + 'static> DragModel<S> {
         self.pending = None;
         self.session = None;
         self.transition = None;
-        self.shown = (self.view_fn)(&state);
+        self.shown = self.view_fn.call(&state);
         self.state = state;
     }
 
     /// The view that should be on screen right now.
     pub fn view(&self) -> &View<S> {
         &self.shown
+    }
+
+    /// The view that the one on screen settles on: the target of the animation that is running,
+    /// or the view on screen when none is. The scenes of the nodes are read from it, since a
+    /// blend of two views carries none.
+    #[cfg_attr(not(feature = "pbr"), allow(dead_code))]
+    pub(crate) fn settled_view(&self) -> &View<S> {
+        self.session
+            .as_ref()
+            .and_then(|session| session.blend.as_ref())
+            .or(self.transition.as_ref())
+            .map_or(&self.shown, Transition::target)
     }
 
     /// Sets how long the animation after a drop takes. Zero snaps instantly.
@@ -131,7 +141,7 @@ impl<S: Clone + Send + Sync + 'static> DragModel<S> {
         };
         transition.advance(seconds);
         if transition.is_finished() {
-            self.shown = (self.view_fn)(&self.state);
+            self.shown = self.view_fn.call(&self.state);
             self.transition = None;
         } else {
             self.shown = transition.current();
@@ -208,8 +218,8 @@ impl<S: Clone + Send + Sync + 'static> DragModel<S> {
     #[cfg_attr(not(feature = "pbr"), allow(dead_code))]
     pub(crate) fn start_drag(&mut self) -> Option<Entity> {
         let pending = self.pending.take()?;
-        let base = (self.view_fn)(&self.state);
-        let spec = (base.get(&pending.node)?.drag.as_ref()?)();
+        let base = self.view_fn.call(&self.state);
+        let spec = base.get(&pending.node)?.drag_spec(&self.state)?;
         let grab_offset = self
             .shown
             .world_position(&pending.node)
@@ -217,8 +227,8 @@ impl<S: Clone + Send + Sync + 'static> DragModel<S> {
             .map_or(Vec3::ZERO, |anchor| {
                 pending.point - pending.space.project_point(anchor)
             });
-        let context = DragContext::new(
-            Arc::clone(&self.view_fn),
+        let context = DragContext::with_view_fn(
+            self.view_fn.clone(),
             pending.node.clone(),
             self.state.clone(),
         )
@@ -301,7 +311,7 @@ impl<S: Clone + Send + Sync + 'static> DragModel<S> {
         self.pending = None;
         if let Some(session) = self.session.take() {
             self.state = session.drop_state;
-            let target = (self.view_fn)(&self.state);
+            let target = self.view_fn.call(&self.state);
             let duration = session
                 .drop_transition
                 .map_or(self.transition_duration, |seconds| seconds.max(0.0));
@@ -343,14 +353,14 @@ fn follow_chains<S: Clone + Send + Sync + 'static>(
         };
         let new_state = frame.drop_state.clone();
         let node = chain.dragged.unwrap_or_else(|| session.node.clone());
-        let view = view_fn(&new_state);
+        let view = view_fn.call(&new_state);
         let Some(spec) = chain
             .follow
-            .or_else(|| view.get(&node)?.drag.as_ref().map(|factory| factory()))
+            .or_else(|| view.get(&node)?.drag_spec(&new_state))
         else {
             break;
         };
-        let context = DragContext::new(Arc::clone(view_fn), node.clone(), new_state.clone())
+        let context = DragContext::with_view_fn(view_fn.clone(), node.clone(), new_state.clone())
             .with_grab_offset(session.grab_offset)
             .with_space(session.space);
         session.behavior = spec.compile(&context);
@@ -660,7 +670,7 @@ mod tests {
     struct Probe;
 
     /// A knob at `home` that moves to the pointer point of its drag space, whatever the space is.
-    fn probe_view(space: DragSpace, home: Vec3) -> impl Fn(&Probe) -> View<Probe> {
+    fn probe_view(space: DragSpace, home: Vec3) -> impl Fn(&Probe) -> View<Probe> + Clone {
         move |_| {
             View::new().with(ViewNode::circle("knob", 1.0).at(home).draggable_in(
                 space,

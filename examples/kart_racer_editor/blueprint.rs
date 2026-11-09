@@ -1,22 +1,16 @@
 //! The architect's drawing under the editor: what shows the structure and the elevation of the
-//! level from any side, whether or not the track can be driven yet.
+//! level from any side.
 //!
 //! - A grid on the ground, over the whole space of the map, with a heavier line every fifth.
 //!   Its spacing is a round number picked from the size of the space, so the squares are a
 //!   length that can be read off the map at any size of track.
-//! - A stilt from the ground to every control point and to the middle of every segment, and a
-//!   disc on the ground under each control point, which show how high the road is and where it
-//!   stands.
-//! - While the track cannot be driven, a translucent ribbon along the curve through the points,
-//!   as wide as the road is there, so the shape that is being laid down can be seen before the
-//!   world builds a road. The ribbon follows the heights and the widths; the banking is for
-//!   the roll ring and the road.
+//! - A stilt from the ground to every control point, and a disc on the ground under it, which
+//!   show how high the road is and where it stands.
 //!
 //! None of it takes a press, so the handles and the terrain keep every press that is theirs.
 
 use bevy::prelude::*;
 use bevy_composable_dragging::{View, ViewNode};
-use bevy_gradmesh::{CatmullRomSpline, Shape, ShapeDetail, Style, SweepOptions};
 
 use crate::state::Editor;
 use crate::view::GROUND_HEIGHT;
@@ -31,32 +25,20 @@ const LINE_THICKNESS: f32 = 0.02;
 const MAJOR_FACTOR: f32 = 2.5;
 /// How wide the stilt under a control point is, as a multiple of the radius of its gem.
 const STILT_WIDTH: f32 = 0.35;
-/// How wide the stilt under the middle of a segment is, as a multiple of the radius of a gem.
-const MIDDLE_STILT_WIDTH: f32 = 0.2;
 /// How wide the disc under a control point is, as a multiple of the radius of its gem.
 const FOOT_RADIUS: f32 = 1.4;
 /// How thick the disc under a control point is, as a fraction of its radius.
 const FOOT_THICKNESS: f32 = 0.15;
-/// How many points of the curve are drawn for every segment between control points.
-const SAMPLES: usize = 16;
-/// How thick the ribbon is, as a fraction of the width of the road.
-const RIBBON_THICKNESS: f32 = 0.05;
-/// How far apart two points of the ribbon have to be to have a direction.
-const RIBBON_EPSILON: f32 = 1e-3;
 
 const MINOR_LINE: Color = Color::srgb(0.28, 0.4, 0.3);
 const MAJOR_LINE: Color = Color::srgb(0.55, 0.7, 0.6);
 const STILT: Color = Color::srgb(0.7, 0.78, 0.9);
 const FOOT: Color = Color::srgb(0.45, 0.6, 0.85);
-const RIBBON: Color = Color::srgba(0.35, 0.55, 0.9, 0.55);
 
 /// Adds the drawing of the editor's track to `view`.
 pub fn push(view: &mut View<Editor>, editor: &Editor) {
     push_grid(view, editor);
     push_stilts(view, editor);
-    if editor.error().is_some() {
-        push_ribbon(view, editor);
-    }
 }
 
 /// The first round number of the form 1, 2 or 5 times a power of ten that is at least `raw`.
@@ -124,21 +106,6 @@ fn push_grid(view: &mut View<Editor>, editor: &Editor) {
     }
 }
 
-/// The points of the curve through `points`: a closed loop of [`SAMPLES`] points for each
-/// segment when there are three or more, and the straight segment between two. The point of
-/// control point `i` is number `i * SAMPLES`.
-fn curve(points: &[Vec3]) -> Vec<Vec3> {
-    let count = points.len();
-    if count < 3 {
-        return points.to_vec();
-    }
-    let spline = CatmullRomSpline::closed(points.to_vec()).expect("there are three points");
-    let total = count * SAMPLES;
-    (0..total)
-        .map(|i| spline.point(i as f32 / total as f32))
-        .collect()
-}
-
 /// A column from the ground to `top`, `width` across.
 fn stilt(id: String, top: Vec3, width: f32, color: Color) -> ViewNode<Editor> {
     let low = GROUND_HEIGHT.min(top.y);
@@ -151,31 +118,12 @@ fn stilt(id: String, top: Vec3, width: f32, color: Color) -> ViewNode<Editor> {
 }
 
 fn push_stilts(view: &mut View<Editor>, editor: &Editor) {
-    let points: Vec<Vec3> = editor
-        .design
-        .control_points
-        .iter()
-        .map(|point| point.position)
-        .collect();
-    if points.is_empty() {
-        return;
-    }
     let radius = editor.handle_radius();
-    let path = curve(&points);
-    let middles: Vec<Vec3> = if points.len() < 3 {
-        points
-            .windows(2)
-            .map(|pair| (pair[0] + pair[1]) / 2.0)
-            .collect()
-    } else {
-        (0..points.len())
-            .map(|segment| path[segment * SAMPLES + SAMPLES / 2])
-            .collect()
-    };
-    for (index, point) in points.iter().enumerate() {
+    for (index, point) in editor.design.control_points.iter().enumerate() {
+        let point = point.position;
         view.push(stilt(
             format!("plan/stilt-{index}"),
-            *point,
+            point,
             radius * STILT_WIDTH,
             STILT,
         ));
@@ -193,76 +141,6 @@ fn push_stilts(view: &mut View<Editor>, editor: &Editor) {
             .with_color(FOOT)
             .pickable(false)
             .casts_shadow(false),
-        );
-    }
-    for (index, middle) in middles.iter().enumerate() {
-        view.push(stilt(
-            format!("plan/middle-{index}"),
-            *middle,
-            radius * MIDDLE_STILT_WIDTH,
-            STILT,
-        ));
-    }
-}
-
-/// The ribbon along the curve through the control points, or `None` while there are not two
-/// that are apart.
-pub fn ribbon(editor: &Editor) -> Option<Shape> {
-    let design = &editor.design;
-    let points: Vec<Vec3> = design.control_points.iter().map(|p| p.position).collect();
-    if points.len() < 2 {
-        return None;
-    }
-    let closed = points.len() >= 3;
-    let path = curve(&points);
-    let length = |closing: bool| {
-        path.windows(2)
-            .map(|pair| pair[0].distance(pair[1]))
-            .chain(closing.then(|| path[path.len() - 1].distance(path[0])))
-            .collect::<Vec<f32>>()
-    };
-    let steps = length(closed);
-    let total: f32 = steps.iter().sum();
-    if total <= RIBBON_EPSILON * path.len() as f32 {
-        return None;
-    }
-    let widths: Vec<f32> = design.control_points.iter().map(|p| p.width).collect();
-    let ratio_of = |sample: usize| steps[..sample].iter().sum::<f32>() / total;
-    let mut keyframes: Vec<(f32, Vec2)> = if closed {
-        (0..points.len())
-            .map(|index| (ratio_of(index * SAMPLES), Vec2::new(widths[index], 1.0)))
-            .collect()
-    } else {
-        vec![(0.0, Vec2::new(widths[0], 1.0))]
-    };
-    keyframes.push((1.0, Vec2::new(widths[usize::from(!closed)], 1.0)));
-    keyframes.dedup_by(|later, earlier| later.0 <= earlier.0);
-    let width = design.road_width(0.0);
-    let thickness = width * RIBBON_THICKNESS;
-    let profile = vec![
-        Vec2::new(-width / 2.0, -thickness),
-        Vec2::new(width / 2.0, -thickness),
-        Vec2::new(width / 2.0, 0.0),
-        Vec2::new(-width / 2.0, 0.0),
-    ];
-    Some(Shape::sweep(
-        profile,
-        path,
-        SweepOptions::default()
-            .with_closed(closed)
-            .with_caps(!closed)
-            .with_scale_along(keyframes)
-            .with_detail(ShapeDetail::Low),
-    ))
-}
-
-fn push_ribbon(view: &mut View<Editor>, editor: &Editor) {
-    if let Some(shape) = ribbon(editor) {
-        view.push(
-            ViewNode::grad("plan/ribbon", shape)
-                .with_style(Style::transparent(RIBBON))
-                .pickable(false)
-                .casts_shadow(false),
         );
     }
 }
@@ -305,31 +183,24 @@ mod tests {
     }
 
     #[test]
-    fn the_grid_covers_the_space_even_for_an_empty_track() {
-        for editor in [Editor::initial(), Editor::upstream()] {
-            let ids = names(&editor);
-            let (_, half) = editor.space();
-            let step = grid_step(half);
-            let expected = (half * 2.0 / step).floor() as usize;
-            assert!(
-                count(&ids, "plan/x/") >= expected,
-                "{}",
-                count(&ids, "plan/x/")
-            );
-            assert!(count(&ids, "plan/z/") >= expected);
-            assert!(count(&ids, "plan/x/") <= GRID_LINES as usize + 1);
-        }
+    fn the_grid_covers_the_space() {
+        let editor = Editor::initial();
+        let ids = names(&editor);
+        let (_, half) = editor.space();
+        let step = grid_step(half);
+        let expected = (half * 2.0 / step).floor() as usize;
+        assert!(count(&ids, "plan/x/") >= expected);
+        assert!(count(&ids, "plan/z/") >= expected);
+        assert!(count(&ids, "plan/x/") <= GRID_LINES as usize + 1);
     }
 
     #[test]
-    fn every_control_point_stands_on_a_stilt_and_a_foot_and_every_segment_has_a_middle() {
-        let editor = Editor::upstream();
+    fn every_control_point_stands_on_a_stilt_and_a_foot() {
+        let editor = Editor::initial();
         let points = editor.design.control_points.len();
         let ids = names(&editor);
         assert_eq!(count(&ids, "plan/stilt-"), points);
         assert_eq!(count(&ids, "plan/foot-"), points);
-        assert_eq!(count(&ids, "plan/middle-"), points);
-        assert_eq!(count(&names(&Editor::initial()), "plan/stilt-"), 0);
     }
 
     #[test]
@@ -348,64 +219,6 @@ mod tests {
             );
             assert!(low <= GROUND_HEIGHT.min(y) + 1e-3, "{y}: {low}");
             assert!(high >= y.max(GROUND_HEIGHT) - 1e-3, "{y}: {high}");
-        }
-    }
-
-    #[test]
-    fn the_ribbon_is_only_drawn_while_the_track_cannot_be_driven() {
-        let drivable = Editor::upstream();
-        assert!(drivable.error().is_none());
-        assert_eq!(count(&names(&drivable), "plan/ribbon"), 0);
-
-        let one = Editor::initial().placed(Vec3::new(10.0, 0.0, 10.0));
-        let two = one.placed(Vec3::new(60.0, 0.0, 10.0));
-        assert_eq!(
-            count(&names(&one), "plan/ribbon"),
-            0,
-            "one point has no direction"
-        );
-        assert_eq!(
-            count(&names(&two), "plan/ribbon"),
-            1,
-            "two points make a segment"
-        );
-        assert!(two.error().is_some());
-        let three = two.placed(Vec3::new(30.0, 0.0, 12.0));
-        assert!(
-            three.error().is_some(),
-            "three points in a line are no loop"
-        );
-        assert_eq!(count(&names(&three), "plan/ribbon"), 1);
-    }
-
-    #[test]
-    fn the_ribbon_follows_the_heights_of_the_points() {
-        let editor = Editor::initial()
-            .placed(Vec3::new(0.0, 0.0, 0.0))
-            .placed(Vec3::new(80.0, 0.0, 0.0))
-            .placed(Vec3::new(40.0, 0.0, 60.0));
-        let low = ribbon(&editor).expect("a ribbon").bounds();
-        let high = ribbon(&editor.raised(2, 12.0)).expect("a ribbon").bounds();
-        assert!(
-            high.max.y > low.max.y + 5.0,
-            "{} against {}",
-            high.max.y,
-            low.max.y
-        );
-    }
-
-    #[test]
-    fn two_points_on_the_same_spot_have_no_ribbon_and_no_nan() {
-        let editor = Editor::initial()
-            .placed(Vec3::new(5.0, 0.0, 5.0))
-            .placed(Vec3::new(5.0, 0.0, 5.0));
-        assert!(ribbon(&editor).is_none());
-        for node in {
-            let mut view = View::new();
-            push(&mut view, &editor);
-            view.nodes().to_vec()
-        } {
-            assert!(node.transform.translation.is_finite(), "{}", node.id);
         }
     }
 }

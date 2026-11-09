@@ -235,9 +235,9 @@ mod tests {
     fn dot_context() -> DragContext<Dot> {
         use crate::view::{View, ViewNode};
         DragContext::new(
-            std::sync::Arc::new(|dot: &Dot| {
+            |dot: &Dot| {
                 View::new().with(ViewNode::circle("dot", 5.0).at_xy(Vec2::new(dot.0, dot.1)))
-            }),
+            },
             "dot".into(),
             Dot(0.0, 0.0),
         )

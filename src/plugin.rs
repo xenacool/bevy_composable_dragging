@@ -1,11 +1,10 @@
 //! The Bevy plugin that wires everything together.
 
-use std::sync::Arc;
-
 use bevy::picking::PickingPlugin;
 use bevy::picking::input::PointerInputPlugin;
 use bevy::picking::mesh_picking::MeshPickingPlugin;
 use bevy::prelude::*;
+use bevy::scene::ScenePlugin;
 
 use crate::behavior::ViewFn;
 use crate::input::{DragPlane, on_click, on_drag, on_drag_end, on_drag_start, on_press};
@@ -32,10 +31,13 @@ pub struct DraggablePlugin<S> {
 
 impl<S> DraggablePlugin<S> {
     /// Creates the plugin for an interface that starts in `initial` and is drawn by `view_fn`.
-    pub fn new(initial: S, view_fn: impl Fn(&S) -> View<S> + Send + Sync + 'static) -> Self {
+    pub fn new(
+        initial: S,
+        view_fn: impl Fn(&S) -> View<S> + Clone + Send + Sync + 'static,
+    ) -> Self {
         Self {
             initial,
-            view_fn: Arc::new(view_fn),
+            view_fn: ViewFn::new(view_fn),
             transition_duration: None,
             rendering: Rendering::default(),
         }
@@ -89,6 +91,9 @@ impl<S: Clone + Send + Sync + 'static> Plugin for DraggablePlugin<S> {
         if !app.is_plugin_added::<MeshPickingPlugin>() {
             app.add_plugins(MeshPickingPlugin);
         }
+        if !app.is_plugin_added::<ScenePlugin>() {
+            app.add_plugins(ScenePlugin);
+        }
         #[cfg(feature = "gradmesh")]
         if !app.is_plugin_added::<bevy_gradmesh::GradMeshPlugin>() {
             if app.get_sub_app(bevy::render::RenderApp).is_some() {
@@ -97,7 +102,7 @@ impl<S: Clone + Send + Sync + 'static> Plugin for DraggablePlugin<S> {
                 add_headless_assets(app);
             }
         }
-        let mut model = DragModel::from_view_fn(self.initial.clone(), Arc::clone(&self.view_fn));
+        let mut model = DragModel::from_view_fn(self.initial.clone(), self.view_fn.clone());
         if let Some(seconds) = self.transition_duration {
             model.set_transition_duration(seconds);
         }

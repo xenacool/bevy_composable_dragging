@@ -132,7 +132,7 @@ Combine dragging with physics engines like `avian3d`. The `physics_lab` example 
 
 - Views are plain data — no ECS overhead for speculative evaluation
 - Geometry morphing is quantized to 32 steps
-- Heightmap chunks are shared — only edited chunks copy
+- A heightmap is two flat buffers, so a copy is two memory copies and an edit names only the chunks it reaches
 - Gizmo handles use a dedicated render layer for fast picking
 
 ## Differences from Dragology
@@ -166,10 +166,10 @@ The test cases of Dragology's `closest.test.tsx`, `userOps.test.tsx`, `math/dela
 | `gradient_hanoi_3d`: `shapes-3d` | `gradient_kanban_2d`: `shapes-2d` | `hello`: minimal `state` example |
 | ![chain_of_cells](screenshots/screenshot_chain_of_cells.webp) | ![blend_square](screenshots/screenshot_blend_square.webp) | ![tactile_tessellations](screenshots/screenshot_tactile_tessellations.webp) |
 | `chain_of_cells`: `with_chaining`, overlay underline, drop transition | `blend_square`: `between_with` natural neighbor and sharpness | `tactile_tessellations`: edge-to-edge snaps with rotation |
-| ![gizmo_3d](screenshots/screenshot_gizmo_3d.webp) | ![cozy_castle](screenshots/screenshot_cozy_castle_menu.webp) | ![kart_racer_editor](screenshots/screenshot_kart_racer_editor_menu.webp) |
-| `gizmo_3d`: translate, rotate and scale gizmos in 3D drag spaces | `cozy_castle`: terrain, walls and radial menu | `kart_racer_editor`: track editor with sweep road and heightfield |
-| ![physics_lab](screenshots/screenshot_physics_lab.webp) | ![cozy_castle](screenshots/screenshot_cozy_castle.webp) | ![kart_racer_editor](screenshots/screenshot_kart_racer_editor.webp) |
-| `physics_lab`: 3D physics shapes dragged onto a grid, simulated with avian | `cozy_castle`: empty ground before building | `kart_racer_editor`: track view without menu |
+| ![gizmo_3d](screenshots/screenshot_gizmo_3d.webp) | ![physics_lab](screenshots/screenshot_physics_lab.webp) | ![cozy_castle](screenshots/screenshot_cozy_castle.webp) |
+| `gizmo_3d`: translate, rotate and scale gizmos in 3D drag spaces | `physics_lab`: 3D physics shapes dragged onto a grid, simulated with avian | `cozy_castle`: radial menu, stacking rooms speculatively, an arch carved into a swept wall |
+| ![kart_racer_editor](screenshots/screenshot_kart_racer_editor.webp) | | |
+| `kart_racer_editor`: a pulled curve, a scaled sweep road, hills and a radial menu | | |
 
 `tessellations` snaps tiles to a grid and shows a toolbar and chaining, while `tactile_tessellations` is a port of Dragology's demo of the same name: regular polygons that snap edge to edge with rotation, `closest` with `when_far`, a palette and a trash bin.
 

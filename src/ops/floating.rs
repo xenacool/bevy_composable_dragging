@@ -1,16 +1,17 @@
 //! The `with_floating` modifier.
 
-use std::sync::Arc;
-
+use crate::owned::owned_fn;
 use crate::spec::DragSpec;
 
 /// How far a floating node is lifted along the normal of the drag space so it is drawn above the
 /// others.
 const FLOAT_LIFT: f32 = 0.5;
 
-/// Maps the distance between the pointer and the node's drop position to the distance the
-/// floating node keeps from that position.
-type Tether = Arc<dyn Fn(f32) -> f32 + Send + Sync>;
+owned_fn! {
+    /// Maps the distance between the pointer and the node's drop position to the distance the
+    /// floating node keeps from that position.
+    Tether<>, TetherCall, (distance: f32) -> f32
+}
 
 /// Options of [`with_floating_options`](DragSpec::with_floating_options). The defaults match
 /// [`with_floating`](DragSpec::with_floating).
@@ -43,8 +44,11 @@ impl FloatingOptions {
     /// example `|distance| distance.min(40.0)` for a leash or `|distance| distance * 0.5` for a
     /// rubber band.
     #[must_use]
-    pub fn with_tether(mut self, tether: impl Fn(f32) -> f32 + Send + Sync + 'static) -> Self {
-        self.tether = Some(Arc::new(tether));
+    pub fn with_tether(
+        mut self,
+        tether: impl Fn(f32) -> f32 + Clone + Send + Sync + 'static,
+    ) -> Self {
+        self.tether = Some(Tether::new(tether));
         self
     }
 }
@@ -87,7 +91,7 @@ impl<S: Clone + Send + Sync + 'static> DragSpec<S> {
                         let offset = pointer.point - home;
                         let distance = offset.length();
                         if distance > 1e-6 {
-                            home + offset * (tether(distance) / distance)
+                            home + offset * (tether.call(distance) / distance)
                         } else {
                             pointer.point
                         }

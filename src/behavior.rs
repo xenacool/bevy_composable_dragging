@@ -1,15 +1,19 @@
 //! The runtime contract between drag specs and the engine.
 
-use std::sync::Arc;
-
 use bevy::math::Vec3;
 
+use crate::owned::owned_fn;
 use crate::space::{DragSpace, Pointer};
 use crate::spec::DragSpec;
 use crate::view::{NodeId, View};
 
-/// Builds the [`View`] of a state. This is the pure `state -> view` function of an interface.
-pub type ViewFn<S> = Arc<dyn Fn(&S) -> View<S> + Send + Sync>;
+owned_fn! {
+    /// Builds the [`View`] of a state. This is the pure `state -> view` function of an interface.
+    ///
+    /// It is owned by one value and cloned with whatever it captures, so a view function that
+    /// captures data clones that data; most capture nothing.
+    pub ViewFn<S>, ViewCall, (state: &S) -> View<S>
+}
 
 /// What a drag shows for one pointer position.
 ///
@@ -146,7 +150,7 @@ pub struct DragContext<S> {
 impl<S: Clone> Clone for DragContext<S> {
     fn clone(&self) -> Self {
         Self {
-            view_fn: Arc::clone(&self.view_fn),
+            view_fn: self.view_fn.clone(),
             dragged: self.dragged.clone(),
             start_state: self.start_state.clone(),
             grab_offset: self.grab_offset,
@@ -156,8 +160,19 @@ impl<S: Clone> Clone for DragContext<S> {
 }
 
 impl<S> DragContext<S> {
-    /// Creates the context for dragging the node `dragged` out of `start_state`.
-    pub fn new(view_fn: ViewFn<S>, dragged: NodeId, start_state: S) -> Self {
+    /// Creates the context for dragging the node `dragged` out of `start_state`, where the
+    /// interface is drawn by `view_fn`.
+    pub fn new(
+        view_fn: impl Fn(&S) -> View<S> + Clone + Send + Sync + 'static,
+        dragged: NodeId,
+        start_state: S,
+    ) -> Self {
+        Self::with_view_fn(ViewFn::new(view_fn), dragged, start_state)
+    }
+
+    /// Creates the context for dragging the node `dragged` out of `start_state`, where the
+    /// interface is drawn by `view_fn`.
+    pub fn with_view_fn(view_fn: ViewFn<S>, dragged: NodeId, start_state: S) -> Self {
         Self {
             view_fn,
             dragged,
@@ -210,12 +225,12 @@ impl<S> DragContext<S> {
 
     /// Speculatively renders `state`. This only builds plain data.
     pub fn render(&self, state: &S) -> View<S> {
-        (self.view_fn)(state)
+        self.view_fn.call(state)
     }
 
-    /// The view function, for operators that evaluate many states while a drag runs.
+    /// A copy of the view function, for operators that evaluate many states while a drag runs.
     pub fn view_fn(&self) -> ViewFn<S> {
-        Arc::clone(&self.view_fn)
+        self.view_fn.clone()
     }
 
     /// The id of the node being dragged.

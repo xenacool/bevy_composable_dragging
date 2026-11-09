@@ -33,16 +33,14 @@ fn follow<S: Clone + Send + Sync + 'static>(
 ) -> DragSpec<S> {
     DragSpec::new(move |context| {
         let view = context.render(&state);
-        let spec = spec.clone().or_else(|| {
-            view.get(&dragged)
-                .and_then(|node| node.drag.as_ref())
-                .map(|factory| factory())
-        });
+        let spec = spec
+            .clone()
+            .or_else(|| view.get(&dragged).and_then(|node| node.drag_spec(&state)));
         let Some(spec) = spec else {
             let state = state.clone();
             return Box::new(move |_| Frame::new(view.clone(), state.clone(), f32::INFINITY));
         };
-        let context = DragContext::new(context.view_fn(), dragged.clone(), state.clone())
+        let context = DragContext::with_view_fn(context.view_fn(), dragged.clone(), state.clone())
             .with_grab_offset(context.grab_offset());
         spec.compile(&context)
     })
@@ -51,7 +49,6 @@ fn follow<S: Clone + Send + Sync + 'static>(
 #[cfg(test)]
 mod tests {
     use crate::space::Pointer;
-    use std::sync::Arc;
 
     use bevy::math::Vec2;
 
@@ -93,7 +90,7 @@ mod tests {
 
     fn tool_context() -> DragContext<Scene> {
         DragContext::new(
-            Arc::new(scene),
+            scene,
             "tool".into(),
             Scene {
                 present: false,
@@ -108,8 +105,12 @@ mod tests {
             tile: 0.0,
         })
         .get("tool")
-        .and_then(|node| node.drag.as_ref())
-        .map(|factory| factory())
+        .and_then(|node| {
+            node.drag_spec(&Scene {
+                present: false,
+                tile: 0.0,
+            })
+        })
         .unwrap()
     }
 

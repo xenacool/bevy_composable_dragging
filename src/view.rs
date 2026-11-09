@@ -8,8 +8,10 @@ use std::borrow::Cow;
 use std::collections::HashMap;
 
 use bevy::color::LinearRgba;
+use bevy::ecs::error::BevyError;
 use bevy::math::{Mat4, Quat, Vec2, Vec3};
-use bevy::prelude::{Color, Ray3d, Transform};
+use bevy::prelude::{Color, EntityWorldMut, Ray3d, Scene, Transform};
+use bevy::scene::EntityWorldMutSceneExt;
 #[cfg(feature = "gradmesh")]
 use bevy_gradmesh::{Shape, ShapeDetail, Style};
 
@@ -35,9 +37,18 @@ const GROUP_RADIUS: f32 = 1e-3;
 /// The stable, globally unique identifier that matches a node across different views.
 pub type NodeId = Cow<'static, str>;
 
-/// Lazily builds the [`DragSpec`] of a node, so specs are only constructed for the node being
-/// dragged and not for every node of every speculative view.
-pub type DragFactory<S> = Box<dyn Fn() -> DragSpec<S> + Send + Sync>;
+/// Lazily builds the [`DragSpec`] of a node from the state its view was rendered from, so specs
+/// are only constructed for the node being dragged and not for every node of every speculative
+/// view.
+pub type DragFactory<S> = Box<dyn Fn(&S) -> DragSpec<S> + Send + Sync>;
+
+/// What puts the scene of a node on its entity, built from the scene function of
+/// [`ViewNode::with_scene`].
+pub(crate) type SceneApplier = Box<dyn FnOnce(&mut EntityWorldMut) -> Result<(), BevyError> + Send>;
+
+/// Lazily builds the scene of a node, so the scene function only runs for a node that appears
+/// in the shown world and never for a speculative view.
+pub(crate) type SceneFactory = Box<dyn Fn() -> SceneApplier + Send + Sync>;
 
 /// A single element of a [`View`].
 ///
@@ -86,6 +97,9 @@ pub struct ViewNode<S> {
     /// The space a drag of this node happens in. `None` uses the default space of the scene
     /// (see `DragPlane`).
     pub drag_space: Option<DragSpace>,
+    /// The scene of the app that goes on the entity of the node when the node first appears (see
+    /// [`with_scene`](Self::with_scene)).
+    pub(crate) scene: Option<SceneFactory>,
 }
 
 impl<S> Clone for ViewNode<S> {
@@ -114,6 +128,7 @@ impl<S> ViewNode<S> {
             layer: 0,
             drag: None,
             drag_space: None,
+            scene: None,
         }
     }
 
@@ -290,6 +305,35 @@ impl<S> ViewNode<S> {
         self
     }
 
+    /// Gives the entity of the node the components and observers of `scene`, which is built
+    /// with `scene` when the node first appears.
+    ///
+    /// The view function stays a pure function of the state: `scene` is only called for a node
+    /// that is shown, never while the engine evaluates a state that is not, so nothing in it runs
+    /// for a preview. The node keeps its entity for as long as it is in the view, so the
+    /// components and observers survive every change of state.
+    ///
+    /// The engine owns what it writes itself (the name, the transform, the mesh, the material,
+    /// the render layers, the picking and the visibility of the entity), and writes it after the
+    /// scene, so the scene cannot change it. The rest belongs to the app. The scene is applied
+    /// once and the engine never touches what it adds again. It must not describe children,
+    /// because the engine owns the hierarchy of the nodes.
+    ///
+    /// A node that first appears while one view blends into another takes its scene from the
+    /// view that the blend settles on, and a node that is only in the view the blend leaves has
+    /// none.
+    #[must_use]
+    pub fn with_scene<B: Scene + Send + Sync + 'static>(
+        mut self,
+        scene: impl Fn() -> B + Send + Sync + 'static,
+    ) -> Self {
+        self.scene = Some(Box::new(move || {
+            let scene = scene();
+            Box::new(move |entity| entity.apply_scene(scene).map_err(BevyError::from))
+        }));
+        self
+    }
+
     /// Draws the node as a flat `Mesh2d` for a `Camera2d`, whatever the default of the plugin is.
     ///
     /// Together with [`on_layer`](Self::on_layer) this builds a HUD over a 3D scene.
@@ -368,9 +412,8 @@ impl<S> ViewNode<S> {
 
     /// Makes the node draggable. `spec` is only called when a drag on this node starts.
     #[must_use]
-    pub fn draggable(mut self, spec: impl Fn() -> DragSpec<S> + Send + Sync + 'static) -> Self {
-        self.drag = Some(Box::new(spec));
-        self
+    pub fn draggable(self, spec: impl Fn() -> DragSpec<S> + Send + Sync + 'static) -> Self {
+        self.draggable_by(move |_| spec())
     }
 
     /// Makes the node draggable in `space`. `spec` is only called when a drag on this node starts.
@@ -381,6 +424,35 @@ impl<S> ViewNode<S> {
         spec: impl Fn() -> DragSpec<S> + Send + Sync + 'static,
     ) -> Self {
         self.draggable(spec).in_space(space)
+    }
+
+    /// Makes the node draggable with a spec that depends on the state. `spec` is only called
+    /// when a drag on this node starts, with the state that the view was rendered from, so the
+    /// view function does not have to copy the state into the node.
+    #[must_use]
+    pub fn draggable_by(
+        mut self,
+        spec: impl Fn(&S) -> DragSpec<S> + Send + Sync + 'static,
+    ) -> Self {
+        self.drag = Some(Box::new(spec));
+        self
+    }
+
+    /// Makes the node draggable in `space`, like [`draggable_by`](Self::draggable_by).
+    #[must_use]
+    pub fn draggable_by_in(
+        self,
+        space: DragSpace,
+        spec: impl Fn(&S) -> DragSpec<S> + Send + Sync + 'static,
+    ) -> Self {
+        self.draggable_by(spec).in_space(space)
+    }
+
+    /// The drag spec of the node, built from `state`, which is the state this node's view was
+    /// rendered from. `None` for a node that cannot be dragged.
+    #[must_use]
+    pub fn drag_spec(&self, state: &S) -> Option<DragSpec<S>> {
+        self.drag.as_ref().map(|factory| factory(state))
     }
 
     /// Sets the space a drag of this node happens in.
@@ -410,6 +482,7 @@ impl<S> ViewNode<S> {
             layer: self.layer,
             drag: None,
             drag_space: self.drag_space,
+            scene: None,
         }
     }
 }
@@ -845,8 +918,8 @@ mod tests {
     #[test]
     fn a_mesh_of_your_own_is_hit_inside_its_measured_bounds() {
         let mesh = MeshGeometry::new(
-            1,
-            bevy::prelude::Mesh::from(bevy::prelude::Rectangle::new(4.0, 2.0)),
+            bevy::prelude::Handle::default(),
+            &bevy::prelude::Mesh::from(bevy::prelude::Rectangle::new(4.0, 2.0)),
         );
         let view: TestView = View::new().with(ViewNode::mesh("terrain", mesh).at(Vec3::X * 10.0));
         assert_eq!(view.hit_test(down_at(11.5, 0.8)).unwrap().id, "terrain");

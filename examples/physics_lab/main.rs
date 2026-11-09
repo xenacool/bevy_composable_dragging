@@ -12,11 +12,6 @@
 //!
 //! Run with `cargo run --example physics_lab --features shapes-3d`.
 
-#![expect(
-    clippy::disallowed_types,
-    reason = "the views and the drags of the library are shared through `Arc`; the guidelines ban shared ownership, and this expectation warns once the last `Arc` of the example is gone"
-)]
-
 use avian3d::prelude::*;
 use bevy::camera::visibility::RenderLayers;
 use bevy::picking::events::PointerPress;
@@ -31,6 +26,8 @@ use bevy_composable_dragging::{DragModel, DraggablePlugin, GIZMO_LAYER};
 mod clicks;
 mod drag;
 mod editor;
+#[cfg(test)]
+mod fuzz;
 #[cfg(test)]
 mod harness;
 #[cfg(test)]

@@ -1,19 +1,21 @@
 //! The `vary` operator.
 
-use std::sync::Arc;
-
 use crate::behavior::Frame;
 use crate::constraint::Constraint;
+use crate::owned::owned_fn;
 use crate::param::Param;
 use crate::solver::{Evaluation, minimize};
 use crate::spec::DragSpec;
 
-type Reader<S> = dyn Fn(&S) -> f32 + Send + Sync;
+owned_fn! {
+    /// Reads a number a pin holds fixed.
+    Reader<S>, ReaderCall, (state: &S) -> f32
+}
 
 /// Options of [`vary_with`] and [`vary_func`]. The defaults add nothing to plain [`vary`].
 pub struct VaryOptions<S> {
     constraint: Constraint<S>,
-    pins: Vec<Arc<Reader<S>>>,
+    pins: Vec<Reader<S>>,
     scale: f32,
 }
 
@@ -62,8 +64,8 @@ impl<S> VaryOptions<S> {
     /// fast pointer by a few frames; use [`vary_func`] to vary the one number that traces the
     /// curve when exactness matters.
     #[must_use]
-    pub fn with_pin(mut self, read: impl Fn(&S) -> f32 + Send + Sync + 'static) -> Self {
-        self.pins.push(Arc::new(read));
+    pub fn with_pin(mut self, read: impl Fn(&S) -> f32 + Clone + Send + Sync + 'static) -> Self {
+        self.pins.push(Reader::new(read));
         self
     }
 
@@ -144,7 +146,7 @@ pub fn vary_with<S: Clone + Send + Sync + 'static>(
 /// search and are not shown on their own.
 pub fn vary_func<S: Clone + Send + Sync + 'static>(
     initial: impl IntoIterator<Item = f32>,
-    build: impl Fn(&[f32]) -> S + Send + Sync + 'static,
+    build: impl Fn(&[f32]) -> S + Clone + Send + Sync + 'static,
     options: VaryOptions<S>,
 ) -> DragSpec<S> {
     let initial: Vec<f32> = initial.into_iter().collect();
@@ -157,12 +159,11 @@ pub fn vary_func<S: Clone + Send + Sync + 'static>(
 fn solve<S: Clone + Send + Sync + 'static>(
     initial: Vec<f32>,
     steps: Vec<f32>,
-    build: impl Fn(&[f32]) -> S + Send + Sync + 'static,
+    build: impl Fn(&[f32]) -> S + Clone + Send + Sync + 'static,
     options: VaryOptions<S>,
 ) -> DragSpec<S> {
-    let build = Arc::new(build);
     DragSpec::new(move |context| {
-        let build = Arc::clone(&build);
+        let build = build.clone();
         let view_fn = context.view_fn();
         let dragged = context.dragged().to_owned();
         let space = *context.space();
@@ -170,13 +171,14 @@ fn solve<S: Clone + Send + Sync + 'static>(
         let constraint = options.constraint.clone();
         let pins = options.pins.clone();
         let initial_state = build(&initial);
-        let targets: Vec<f32> = pins.iter().map(|read| read(&initial_state)).collect();
+        let targets: Vec<f32> = pins.iter().map(|read| read.call(&initial_state)).collect();
         let mut values = initial.clone();
 
         Box::new(move |pointer| {
             let (solution, evaluation) = minimize(&values, &steps, |candidate| {
                 let state = build(candidate);
-                let cost = view_fn(&state)
+                let cost = view_fn
+                    .call(&state)
                     .world_position(&dragged)
                     .map_or(f32::INFINITY, |anchor| {
                         space.project_point(anchor).distance_squared(pointer.point)
@@ -184,7 +186,7 @@ fn solve<S: Clone + Send + Sync + 'static>(
                 let pinned: f32 = pins
                     .iter()
                     .zip(&targets)
-                    .map(|(read, target)| (read(&state) - target).abs())
+                    .map(|(read, target)| (read.call(&state) - target).abs())
                     .sum();
                 Evaluation {
                     cost,
@@ -193,7 +195,11 @@ fn solve<S: Clone + Send + Sync + 'static>(
             });
             values = solution;
             let drop_state = build(&values);
-            Frame::new(view_fn(&drop_state), drop_state, evaluation.cost.sqrt())
+            Frame::new(
+                view_fn.call(&drop_state),
+                drop_state,
+                evaluation.cost.sqrt(),
+            )
         })
     })
 }
@@ -201,7 +207,6 @@ fn solve<S: Clone + Send + Sync + 'static>(
 #[cfg(test)]
 mod tests {
     use crate::space::Pointer;
-    use std::sync::Arc;
 
     use bevy::math::Vec2;
 
@@ -222,7 +227,7 @@ mod tests {
     }
 
     fn slider_context(value: f32) -> DragContext<Slider> {
-        DragContext::new(Arc::new(slider_view), "knob".into(), Slider { value })
+        DragContext::new(slider_view, "knob".into(), Slider { value })
     }
 
     #[test]
@@ -271,7 +276,7 @@ mod tests {
             start: 0.4,
             end: 0.8,
         };
-        let context = DragContext::new(Arc::new(range_view), "end".into(), initial.clone());
+        let context = DragContext::new(range_view, "end".into(), initial.clone());
         let constraint = in_order([param!(Range, start), param!(Range, end)]);
         let mut behavior =
             vary_constrained(initial, [param!(Range, end)], constraint).compile(&context);
@@ -291,7 +296,7 @@ mod tests {
     }
 
     fn point_context() -> DragContext<Point> {
-        DragContext::new(Arc::new(point_view), "dot".into(), Point { x: 0.0, y: 5.0 })
+        DragContext::new(point_view, "dot".into(), Point { x: 0.0, y: 5.0 })
     }
 
     #[test]
@@ -321,7 +326,7 @@ mod tests {
     #[test]
     fn a_fixed_distance_pin_slides_the_dot_along_the_circle() {
         let start = Point { x: 100.0, y: 0.0 };
-        let context = DragContext::new(Arc::new(point_view), "dot".into(), start.clone());
+        let context = DragContext::new(point_view, "dot".into(), start.clone());
         let spec = vary_with(
             start,
             [param!(Point, x), param!(Point, y)],
@@ -379,11 +384,7 @@ mod tests {
 
     #[test]
     fn a_missing_dragged_node_reports_an_infinite_gap() {
-        let context = DragContext::new(
-            Arc::new(slider_view),
-            "missing".into(),
-            Slider { value: 0.5 },
-        );
+        let context = DragContext::new(slider_view, "missing".into(), Slider { value: 0.5 });
         let mut behavior = vary(Slider { value: 0.5 }, [param!(Slider, value)]).compile(&context);
         assert!(behavior(Pointer::from(Vec2::ZERO)).gap.is_infinite());
     }

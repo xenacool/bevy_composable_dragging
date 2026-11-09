@@ -15,6 +15,8 @@ pub mod screenshot;
 
 pub mod script;
 
+pub mod tour;
+
 #[cfg(test)]
 pub mod mouse;
 

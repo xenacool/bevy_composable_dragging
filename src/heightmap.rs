@@ -2,10 +2,11 @@
 //!
 //! Every vertex of the grid has one height, so there are no caves or overhangs. The cells can be
 //! cut out as holes: a hole is a mask over the cells, so the height under it is kept and a hole
-//! that is filled again brings back the hill that was there. The grid is cut into chunks that
-//! are shared with [`Arc`], so copying a [`Heightmap`] is cheap and an edit only copies the
-//! chunks it reaches. [`Heightmap::chunk_key`] changes whenever anything a chunk's mesh is
-//! built from changes, which is how a renderer knows which meshes to build again.
+//! that is filled again brings back the hill that was there. The grid is cut into chunks, and
+//! the heights and holes of the whole map are two flat buffers laid out chunk by chunk, so
+//! copying a [`Heightmap`] is two memory copies and an edit reports the chunks it reaches.
+//! [`Heightmap::chunk_key`] changes whenever anything a chunk's mesh is built from changes,
+//! which is how a renderer knows which meshes to build again.
 //!
 //! Nothing here is tied to a look or to a game: the size of a chunk, the distance between
 //! vertices, the height the ground starts at and how high and low it can go are all given in
@@ -28,7 +29,6 @@
 
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
-use std::sync::Arc;
 
 use bevy::math::{UVec2, Vec2, Vec3, Vec3Swizzles};
 use bevy::prelude::Ray3d;
@@ -88,14 +88,6 @@ impl Grid {
     }
 }
 
-/// A square of the ground: the heights of its vertices and which of its cells are holes, row
-/// by row.
-#[derive(Clone, Debug, PartialEq)]
-struct Chunk {
-    heights: Vec<f32>,
-    holes: Vec<bool>,
-}
-
 /// The whole index of a position on the grid, which is rounded down.
 #[allow(
     clippy::cast_possible_truncation,
@@ -110,10 +102,14 @@ fn length(count: isize) -> f32 {
     count as f32
 }
 
-/// A grid of heights in shared chunks, with holes, that brushes edit.
+/// A grid of heights in chunks, with holes, that brushes edit.
+///
+/// The heights of the vertices and the flags of the cells that are holes are kept chunk by
+/// chunk, row by row inside each chunk.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Heightmap {
-    chunks: Vec<Arc<Chunk>>,
+    heights: Vec<f32>,
+    holes: Vec<bool>,
     grid: Grid,
     base: f32,
     lowest: f32,
@@ -125,14 +121,10 @@ impl Heightmap {
     /// `highest`. The limits are ordered around `base`.
     #[must_use]
     pub fn new(grid: Grid, base: f32, lowest: f32, highest: f32) -> Self {
-        let cells = grid.side * grid.side;
-        let chunk = Arc::new(Chunk {
-            heights: vec![base; cells],
-            holes: vec![false; cells],
-        });
-        let count = (grid.chunks.x * grid.chunks.y) as usize;
+        let count = (grid.chunks.x * grid.chunks.y) as usize * grid.side * grid.side;
         Self {
-            chunks: vec![chunk; count],
+            heights: vec![base; count],
+            holes: vec![false; count],
             grid,
             base,
             lowest: lowest.min(base),
@@ -152,12 +144,10 @@ impl Heightmap {
         let side = grid.side;
         let across = grid.chunks.x as usize;
         let cell_middle = Vec2::splat(grid.pitch / 2.0);
-        for (index, slot) in map.chunks.iter_mut().enumerate() {
+        let mut heights = Vec::with_capacity(map.heights.len());
+        let mut holes = Vec::with_capacity(map.holes.len());
+        for index in 0..map.chunk_count() {
             let (x0, z0) = (index % across * side, index / across * side);
-            let mut chunk = Chunk {
-                heights: Vec::with_capacity(side * side),
-                holes: Vec::with_capacity(side * side),
-            };
             for z in z0..z0 + side {
                 for x in x0..x0 + side {
                     let at = grid.origin
@@ -167,12 +157,13 @@ impl Heightmap {
                     } else {
                         self.base
                     };
-                    chunk.heights.push(height.clamp(map.lowest, map.highest));
-                    chunk.holes.push(self.is_hole(at + cell_middle));
+                    heights.push(height.clamp(map.lowest, map.highest));
+                    holes.push(self.is_hole(at + cell_middle));
                 }
             }
-            *slot = Arc::new(chunk);
         }
+        map.heights = heights;
+        map.holes = holes;
         map
     }
 
@@ -209,7 +200,7 @@ impl Heightmap {
     /// How many chunks the ground has, row by row.
     #[must_use]
     pub fn chunk_count(&self) -> usize {
-        self.chunks.len()
+        (self.grid.chunks.x * self.grid.chunks.y) as usize
     }
 
     /// The vertices along X and along Z.
@@ -243,24 +234,21 @@ impl Heightmap {
         (xz - self.grid.origin) / self.grid.pitch
     }
 
-    /// The chunk and the place in it of vertex `(x, z)`, which is clamped to the grid.
-    fn slot(&self, x: isize, z: isize) -> (usize, usize) {
+    /// The index in the buffers of vertex `(x, z)`, which is clamped to the grid.
+    fn slot(&self, x: isize, z: isize) -> usize {
         let (width, depth) = self.vertices();
         let x = usize::try_from(x.max(0)).unwrap_or(0).min(width - 1);
         let z = usize::try_from(z.max(0)).unwrap_or(0).min(depth - 1);
         let side = self.grid.side;
-        (
-            (z / side) * self.grid.chunks.x as usize + x / side,
-            (z % side) * side + x % side,
-        )
+        let chunk = (z / side) * self.grid.chunks.x as usize + x / side;
+        chunk * side * side + (z % side) * side + x % side
     }
 
     /// The height of vertex `(x, z)`. Beyond the grid the ground continues flat at the height
     /// of its edge.
     #[must_use]
     pub fn vertex_height(&self, x: isize, z: isize) -> f32 {
-        let (chunk, place) = self.slot(x, z);
-        self.chunks[chunk].heights[place]
+        self.heights[self.slot(x, z)]
     }
 
     /// Whether the cell whose corner is vertex `(x, z)` is a hole. The row and the column
@@ -271,8 +259,7 @@ impl Heightmap {
         if x < 0 || z < 0 || x >= across || z >= deep {
             return true;
         }
-        let (chunk, place) = self.slot(x, z);
-        self.chunks[chunk].holes[place]
+        self.holes[self.slot(x, z)]
     }
 
     /// Where vertex `(x, z)` is on the ground plane.
@@ -387,8 +374,8 @@ impl Heightmap {
                 if (new - old).abs() <= f32::EPSILON {
                     continue;
                 }
-                let (chunk, place) = self.slot(x, z);
-                Arc::make_mut(&mut self.chunks[chunk]).heights[place] = new;
+                let slot = self.slot(x, z);
+                self.heights[slot] = new;
                 changed = Some(changed.map_or((x, x, z, z), |(x0, x1, z0, z1)| {
                     (x0.min(x), x1.max(x), z0.min(z), z1.max(z))
                 }));
@@ -441,10 +428,8 @@ impl Heightmap {
                 if (x, z) != under && middle.distance(center) > radius {
                     continue;
                 }
-                let (chunk, place) = self.slot(x, z);
-                if self.chunks[chunk].holes[place] != hole {
-                    Arc::make_mut(&mut map.chunks[chunk]).holes[place] = hole;
-                }
+                let slot = self.slot(x, z);
+                map.holes[slot] = hole;
             }
         }
         map
@@ -469,8 +454,8 @@ impl Heightmap {
                 {
                     continue;
                 }
-                let (chunk, place) = self.slot(x, z);
-                Arc::make_mut(&mut self.chunks[chunk]).heights[place] = limit;
+                let slot = self.slot(x, z);
+                self.heights[slot] = limit;
             }
         }
     }
@@ -672,13 +657,13 @@ mod tests {
     }
 
     #[test]
-    fn an_edit_copies_only_the_chunks_it_reaches_and_names_the_ones_that_share_its_edge() {
+    fn an_edit_changes_only_the_chunks_it_reaches_and_names_the_ones_that_share_its_edge() {
         let map = flat();
         let inside = Vec2::new(-1.0 + 0.25 * 3.0, 2.0 + 0.25 * 3.0);
         let mut edited = map.clone();
         assert_eq!(edited.apply(&mound(inside, 0.5)), vec![0]);
-        assert!(Arc::ptr_eq(&map.chunks[5], &edited.chunks[5]));
-        assert!(!Arc::ptr_eq(&map.chunks[0], &edited.chunks[0]));
+        assert_eq!(map.chunk_heights(5), edited.chunk_heights(5));
+        assert_ne!(map.chunk_heights(0), edited.chunk_heights(0));
         let on_edge = Vec2::new(-1.0 + 0.25 * 8.0, 2.0 + 0.25 * 3.0);
         let mut edited = map.clone();
         assert_eq!(edited.apply(&mound(on_edge, 0.5)), vec![0, 1]);
