@@ -167,7 +167,6 @@ The test cases of Dragology's `closest.test.tsx`, `userOps.test.tsx`, `math/dela
 | `tessellations` | toolbar and trash bin |
 | `gradient_hanoi_3d` | `shapes-3d` |
 | `gradient_kanban_2d` | `shapes-2d` |
-| `hello` | minimal `state` example |
 | `chain_of_cells` | `with_chaining`, overlay underline, drop transition |
 | `blend_square` | `between_with` natural neighbor and sharpness |
 | `tactile_tessellations` | edge-to-edge snaps with rotation |

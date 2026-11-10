@@ -6,7 +6,7 @@ Bevy Composable Dragging is a declarative dragging library for [Bevy](https://be
 
 Instead of writing hand-crafted drop zones, hit tests, and drag state machines, you describe your interface as a pure function from state to a [`View`](https://docs.rs/bevy_composable_dragging/latest/bevy_composable_dragging/struct.View.html), and attach a *drag spec* to every node that can be dragged. The engine renders the target states speculatively, finds the dragged node by id in each of them, and synthesizes the preview while dragging and the new state on release.
 
-*A single draggable circle toggling between two states. Run `cargo run --example hello --features pbr` to reproduce it.*
+*A single draggable circle toggling between two states. Run `cargo run --example toggle --features pbr` to reproduce it.*
 
 ## Key Concepts
 

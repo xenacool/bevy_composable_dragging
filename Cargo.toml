@@ -68,11 +68,6 @@ avian2d = { version = "0.8", default-features = false, features = ["2d", "parry-
 avian3d = { version = "0.8", default-features = false, features = ["3d", "parry-f32", "collider-from-mesh", "parallel"] }
 
 [[example]]
-name = "hello"
-path = "examples/hello.rs"
-required-features = ["pbr"]
-
-[[example]]
 name = "toggle"
 path = "examples/toggle.rs"
 required-features = ["pbr"]
