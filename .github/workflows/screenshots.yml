@@ -51,5 +51,5 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          VERSION=$(grep '^version =' Cargo.toml | head -1 | sed 's/version = "\(.*\)"/\1/')
+          VERSION=$(grep '^version =' Cargo.toml | head -1 | sed 's/version = "\([^"]*\)".*/\1/')
           gh release upload v"$VERSION" "screenshots-v${VERSION}.zip" --clobber

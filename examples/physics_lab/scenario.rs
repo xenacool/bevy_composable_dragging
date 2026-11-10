@@ -84,7 +84,9 @@ impl Primitive {
             Self::Cylinder => Shape::cylinder(half, size, detail),
             Self::Cone => Shape::cone(half, size, detail),
             Self::Capsule => Shape::capsule(size / 4.0, size, detail),
-            Self::Torus => Shape::torus(size * 0.35, size * 0.15, 0.0, std::f32::consts::TAU),
+            Self::Torus => {
+                Shape::torus(size * 0.35, size * 0.15, 0.0, std::f32::consts::TAU, detail)
+            }
             Self::Pyramid => Shape::pyramid(4, half, size, detail),
             Self::Disc => Shape::disc(half, detail),
             Self::Ring => Shape::ring(half, half / 2.0, detail),
@@ -99,7 +101,9 @@ impl Primitive {
                 ShapePart::new(Shape::sphere(size / 4.0, detail))
                     .with_transform(Transform::from_xyz(0.0, size / 4.0, 0.0)),
             ]),
-            Self::Spline => Shape::torus(size * 0.3, size * 0.1, 0.0, std::f32::consts::TAU),
+            Self::Spline => {
+                Shape::torus(size * 0.3, size * 0.1, 0.0, std::f32::consts::TAU, detail)
+            }
         }
     }
 }

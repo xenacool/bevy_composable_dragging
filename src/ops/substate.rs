@@ -227,8 +227,8 @@ mod tests {
     #[test]
     fn substate_propagates_drag_space() {
         use crate::behavior::DragContext;
-        use crate::ops::vary_func;
         use crate::ops::VaryOptions;
+        use crate::ops::vary_func;
         use crate::space::{DragSpace, Pointer};
         use bevy::math::{Dir3, Vec3};
 
@@ -249,11 +249,7 @@ mod tests {
                                 |s: &GroundPoint| s.x,
                                 |s: &GroundPoint, x| GroundPoint { x, ..s.clone() },
                             ),
-                            vary_func(
-                                [x],
-                                |v| v[0],
-                                VaryOptions::new().with_scale(10.0),
-                            ),
+                            vary_func([x], |v| v[0], VaryOptions::new().with_scale(10.0)),
                         )
                     }),
             )

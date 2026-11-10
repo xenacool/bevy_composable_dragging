@@ -206,10 +206,7 @@ mod tests {
                         .draggable(move || {
                             vary(
                                 current.clone(),
-                                [
-                                    param!(GroundScene, tile_x),
-                                    param!(GroundScene, tile_z),
-                                ],
+                                [param!(GroundScene, tile_x), param!(GroundScene, tile_z)],
                             )
                         }),
                 );
@@ -236,11 +233,13 @@ mod tests {
             tile_z: 0.0,
         })
         .get("tool")
-        .and_then(|node| node.drag_spec(&GroundScene {
-            tile_created: false,
-            tile_x: 0.0,
-            tile_z: 0.0,
-        }))
+        .and_then(|node| {
+            node.drag_spec(&GroundScene {
+                tile_created: false,
+                tile_x: 0.0,
+                tile_z: 0.0,
+            })
+        })
         .unwrap();
 
         let mut behavior = spec.compile(&context);

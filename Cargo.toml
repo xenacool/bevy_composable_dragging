@@ -1,6 +1,6 @@
 [package]
 name = "bevy_composable_dragging"
-version = "0.3.4" # Must always aligned with bevy_gradmesh. Don't forget to update README.md and book/
+version = "0.3.5" # Must always aligned with bevy_gradmesh. Don't forget to update README.md and book/
 authors = ["Jessica Collins (https://github.com/xenacool)"]
 edition = "2024"
 rust-version = "1.87"
@@ -52,10 +52,12 @@ shapes-2d = ["gradmesh"]
 shapes-3d = ["gradmesh"]
 # Property-based fuzz tests for the physics lab example (slow — not in default test runs).
 fuzz = []
+# Editable heightmap terrain for the kart racer editor and similar examples.
+basic-terrain = []
 
 [dependencies]
 bevy = { version = "0.20", default-features = false, features = ["bevy_color", "bevy_scene"] }
-bevy_gradmesh = { version = "0.3.4", optional = true }
+bevy_gradmesh = { version = "0.3.5", optional = true }
 
 # Examples need windowing, tonemapping LUT textures and PNG support which the library does not require.
 [dev-dependencies]
@@ -162,7 +164,7 @@ required-features = ["shapes-3d"]
 [[example]]
 name = "kart_racer_editor"
 path = "examples/kart_racer_editor/main.rs"
-required-features = ["shapes-3d"]
+required-features = ["shapes-3d", "basic-terrain"]
 
 [[example]]
 name = "physics_lab"

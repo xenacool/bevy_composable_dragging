@@ -205,7 +205,13 @@ impl<S> ViewNode<S> {
     pub fn torus(id: impl Into<NodeId>, radius: f32, thickness: f32) -> Self {
         Self::grad(
             id,
-            Shape::torus(radius, thickness, 0.0, std::f32::consts::TAU),
+            Shape::torus(
+                radius,
+                thickness,
+                0.0,
+                std::f32::consts::TAU,
+                ShapeDetail::Medium,
+            ),
         )
     }
 

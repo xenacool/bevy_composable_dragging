@@ -14,6 +14,7 @@ mod geometry;
 pub mod gizmo;
 #[cfg(feature = "gradmesh")]
 pub mod handles;
+#[cfg(feature = "basic-terrain")]
 pub mod heightmap;
 #[cfg(feature = "gradmesh")]
 pub mod hud;
@@ -35,6 +36,8 @@ mod rendering;
 mod sdf;
 #[cfg(feature = "pbr")]
 mod shapes;
+#[cfg(feature = "gradmesh")]
+pub mod snapping;
 mod solver;
 mod space;
 mod spec;

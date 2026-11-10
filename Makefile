@@ -70,21 +70,26 @@ ANIMATIONS_WEBP = $(patsubst %,screenshot_%.webp,$(ANIMATIONS))
 # Detect whether we need a virtual display for screenshot capture
 XVFB_RUN := $(shell if [ -z "$$DISPLAY" ] && [ -z "$$WAYLAND_DISPLAY" ] && [ -z "$$WAYLAND_SOCKET" ] && command -v xvfb-run >/dev/null 2>&1; then echo "xvfb-run --auto-servernum --server-args='-screen 0 1280x720x24'"; fi)
 
+# Output directory for newly captured screenshots.  Defaults to screenshots-new/ so that
+# running `make screenshots` does not modify the git-tracked screenshots/ directory.
+# Override via the environment or on the command line: make screenshots OUT_DIR=screenshots
+OUT_DIR ?= screenshots-new
+
 # Arguments: example name, cargo features. The example may save the PNG to the project root
-# or directly to screenshots/; either location is accepted.
+# or directly to $(OUT_DIR)/; either location is accepted.
 define capture_screenshot
 	@echo "=== Capturing $(1) screenshot ==="
 	$(XVFB_RUN) env DSD_SCREENSHOT=1 timeout 120 cargo run --example $(1) --features $(2) 2>&1 || true
-	@if [ -f screenshots/screenshot_$(1).png ]; then \
-		ffmpeg -y -i screenshots/screenshot_$(1).png -vcodec libwebp -quality 75 \
-			screenshots/screenshot_$(1).webp 2>/dev/null && \
-		echo "Saved screenshots/screenshot_$(1).webp" || \
+	@if [ -f $(OUT_DIR)/screenshot_$(1).png ]; then \
+		ffmpeg -y -i $(OUT_DIR)/screenshot_$(1).png -vcodec libwebp -quality 75 \
+			$(OUT_DIR)/screenshot_$(1).webp 2>/dev/null && \
+		echo "Saved $(OUT_DIR)/screenshot_$(1).webp" || \
 		echo "Warning: ffmpeg WebP encoding failed for $(1)"; \
-		rm -f screenshots/screenshot_$(1).png; \
+		rm -f $(OUT_DIR)/screenshot_$(1).png; \
 	elif [ -f screenshot_$(1).png ]; then \
 		ffmpeg -y -i screenshot_$(1).png -vcodec libwebp -quality 75 \
-			screenshots/screenshot_$(1).webp 2>/dev/null && \
-		echo "Saved screenshots/screenshot_$(1).webp" || \
+			$(OUT_DIR)/screenshot_$(1).webp 2>/dev/null && \
+		echo "Saved $(OUT_DIR)/screenshot_$(1).webp" || \
 		echo "Warning: ffmpeg WebP encoding failed for $(1)"; \
 		rm -f screenshot_$(1).png; \
 	fi
@@ -101,8 +106,8 @@ define capture_animation
 		echo "Encoding frames to WebP..."; \
 		ffmpeg -y -framerate 30 -i frames/screenshot_$(1)_frame_%04d.png \
 			-vcodec libwebp -quality 75 -loop 0 \
-			screenshots/screenshot_$(1).webp 2>/dev/null && \
-		echo "Saved screenshots/screenshot_$(1).webp" || \
+			$(OUT_DIR)/screenshot_$(1).webp 2>/dev/null && \
+		echo "Saved $(OUT_DIR)/screenshot_$(1).webp" || \
 		echo "Warning: ffmpeg WebP encoding failed for $(1)"; \
 		rm -f frames/screenshot_$(1)_frame_*.png; \
 	else \
@@ -120,8 +125,8 @@ define capture_tour
 		echo "Encoding frames to WebP..."; \
 		ffmpeg -y -framerate 30 -i frames/screenshot_$(2)_frame_%04d.png \
 			-vf "fps=20,scale=960:-1:flags=lanczos" -vcodec libwebp -quality 70 -loop 0 \
-			screenshots/screenshot_$(2).webp 2>/dev/null && \
-		echo "Saved screenshots/screenshot_$(2).webp" || \
+			$(OUT_DIR)/screenshot_$(2).webp 2>/dev/null && \
+		echo "Saved $(OUT_DIR)/screenshot_$(2).webp" || \
 		echo "Warning: ffmpeg WebP encoding failed for $(2)"; \
 		rm -f frames/screenshot_$(2)_frame_*.png; \
 	else \
@@ -139,7 +144,7 @@ kart_racer_editor_tour:
 screenshots:
 	@echo "=== Building all examples ==="
 	cargo build --examples --features shapes-2d,shapes-3d
-	@mkdir -p screenshots
+	@mkdir -p $(OUT_DIR)
 	@echo ""
 	$(call capture_screenshot,hello,pbr)
 	@echo ""
@@ -179,31 +184,30 @@ screenshots:
 	@echo ""
 	$(call capture_animation,physics_lab,shapes-3d)
 	@echo ""
-	@echo "=== Screenshots saved to screenshots/ ==="
-	@ls -la screenshots/
+	@echo "=== Screenshots saved to $(OUT_DIR)/ ==="
+	@ls -la $(OUT_DIR)/
 
 clean:
 	cargo clean
 
 # Release target: sanity-checks all screenshots and packages them into a zip for GitHub Releases.
 # Use this locally before uploading, and in CI to gate releases.
-VERSION := $(shell grep '^version =' Cargo.toml | head -1 | sed 's/version = "\(.*\)"/\1/')
+VERSION := $(shell grep '^version =' Cargo.toml | head -1 | sed 's/version = "\([^"]*\)".*/\1/')
 
 release-zip: screenshots
 	@echo "=== Validating screenshots ==="
-	@for f in screenshots/*.webp; do \
+	@for f in $(OUT_DIR)/*.webp; do \
 		if [ -f "$$f" ]; then \
 			if ! file "$$f" | grep -q "Web/P"; then \
 				echo "ERROR: $$f is not a valid WebP"; exit 1; \
 			fi; \
 		fi; \
 	done
-	@count=$$(ls screenshots/*.webp 2>/dev/null | wc -l); \
+	@count=$$(ls $(OUT_DIR)/*.webp 2>/dev/null | wc -l); \
 	echo "Found $$count screenshot files"
-	@rm -f screenshots-v$(VERSION).zip
-	@cd screenshots && zip -r ../screenshots-v$(VERSION).zip *.webp 2>/dev/null || \
-		(cd screenshots && zip ../screenshots-v$(VERSION).zip *.webp)
-	@echo "Created screenshots-v$(VERSION).zip ($$(du -h ../screenshots-v$(VERSION).zip | cut -f1))"
+	@cd $(OUT_DIR) && zip -r ../screenshots-v$(VERSION).zip *.webp 2>/dev/null || \
+		(cd $(OUT_DIR) && zip ../screenshots-v$(VERSION).zip *.webp)
+	@echo "Created screenshots-v$(VERSION).zip ($$(du -h screenshots-v$(VERSION).zip | cut -f1))"
 
 release: release-zip
 	@echo ""
