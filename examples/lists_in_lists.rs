@@ -360,11 +360,9 @@ fn initial_canvas() -> Canvas {
     }
 }
 
-
 /// Run this example. Called by the WASM runner.
 pub fn run(app: &mut App) {
-    app
-        .add_plugins(common::default_plugins("lists_in_lists"))
+    app.add_plugins(common::default_plugins("lists_in_lists"))
         .add_plugins(DraggablePlugin::new(initial_canvas(), view))
         .add_plugins(ScriptedDragPlugin::straight(
             Vec2::new(-4.2, 1.5),
@@ -378,8 +376,7 @@ pub fn run(app: &mut App) {
         )
         .add_systems(Startup, |mut commands: Commands| {
             common::spawn_cameras(&mut commands, 7.0);
-        })
-        ;
+        });
 }
 
 fn main() {

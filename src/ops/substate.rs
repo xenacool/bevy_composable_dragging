@@ -101,7 +101,8 @@ where
             NodeId::from(context.dragged().to_owned()),
             lens.get(&whole),
         )
-        .with_grab_offset(context.grab_offset());
+        .with_grab_offset(context.grab_offset())
+        .with_space(*context.space());
         let mut inner = spec.compile(&part_context);
         let lens = lens.clone();
         Box::new(move |pointer| lift(&lens, &whole, inner(pointer)))
@@ -217,5 +218,64 @@ mod tests {
         let frame = spec.compile(&two_context())(Pointer::from(Vec2::ZERO));
         assert_eq!(frame.branch_transition, Some(0.5));
         assert_eq!(frame.drop_transition, Some(0.25));
+    }
+
+    /// Verifies that `substate` propagates the parent's DragSpace to the inner spec.
+    ///
+    /// Without `.with_space()`, the inner spec would default to the XY world plane, so a drag
+    /// on the XZ ground plane would move in the wrong direction.
+    #[test]
+    fn substate_propagates_drag_space() {
+        use crate::behavior::DragContext;
+        use crate::ops::vary_func;
+        use crate::ops::VaryOptions;
+        use crate::space::{DragSpace, Pointer};
+        use bevy::math::{Dir3, Vec3};
+
+        #[derive(Clone)]
+        struct GroundPoint {
+            x: f32,
+            z: f32,
+        }
+
+        fn ground_view(state: &GroundPoint) -> View<GroundPoint> {
+            let x = state.x;
+            View::new().with(
+                ViewNode::circle("dot", 1.0)
+                    .at(Vec3::new(state.x, 0.0, state.z))
+                    .draggable(move || {
+                        substate(
+                            Lens::new(
+                                |s: &GroundPoint| s.x,
+                                |s: &GroundPoint, x| GroundPoint { x, ..s.clone() },
+                            ),
+                            vary_func(
+                                [x],
+                                |v| v[0],
+                                VaryOptions::new().with_scale(10.0),
+                            ),
+                        )
+                    }),
+            )
+        }
+
+        let xz_plane = DragSpace::plane(Vec3::ZERO, Dir3::Y);
+        let context = DragContext::new(ground_view, "dot".into(), GroundPoint { x: 0.0, z: 0.0 })
+            .with_space(xz_plane);
+
+        let spec = ground_view(&GroundPoint { x: 0.0, z: 0.0 })
+            .get("dot")
+            .and_then(|node| node.drag_spec(&GroundPoint { x: 0.0, z: 0.0 }))
+            .unwrap();
+
+        let mut behavior = spec.compile(&context);
+        let pointer = Pointer::at(Vec3::new(5.0, 0.0, 0.0));
+        let frame = behavior(pointer);
+
+        assert!(
+            (frame.drop_state.x - 5.0).abs() < 1e-2,
+            "substate inner spec should follow pointer on XZ plane: got {}, expected 5.0",
+            frame.drop_state.x
+        );
     }
 }

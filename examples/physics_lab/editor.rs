@@ -32,7 +32,23 @@ pub const RATES: [u32; 4] = [30, 60, 120, 240];
 /// The solver substeps of each step.
 pub const SUBSTEPS: [u32; 3] = [1, 6, 12];
 /// The values of restitution and friction to choose from.
-pub const COEFFICIENTS: [f32; 3] = [0.0, 0.5, 1.0];
+pub const COEFFICIENTS: [f32; 5] = [0.0, 0.25, 0.5, 0.75, 1.0];
+/// Gravity strengths.
+pub const GRAVITIES: [f32; 5] = [0.0, 1.6, 4.0, 9.81, 20.0];
+/// Board rotation angles in degrees.
+pub const BOARD_ROTATIONS: [f32; 5] = [0.0, 45.0, 90.0, 135.0, 180.0];
+/// Board width multipliers.
+pub const BOARD_SIZES: [f32; 4] = [0.5, 1.0, 1.5, 2.0];
+/// Floor restitution values.
+pub const FLOOR_RESTITUTIONS: [f32; 5] = [0.0, 0.25, 0.5, 0.75, 1.0];
+/// Render layer counts.
+pub const LAYER_COUNTS: [u8; 3] = [1, 2, 4];
+/// Density multipliers.
+pub const DENSITIES: [f32; 5] = [0.1, 0.5, 1.0, 5.0, 10.0];
+/// Camera distance from the board.
+pub const CAMERA_DISTANCES: [f32; 4] = [8.0, 14.0, 20.0, 30.0];
+/// Camera height above the board.
+pub const CAMERA_HEIGHTS: [f32; 4] = [2.0, 5.0, 9.0, 15.0];
 
 /// A place a piece can rest in.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -64,6 +80,16 @@ pub struct Piece {
     pub cell: Cell,
 }
 
+/// A wall placed on the board.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Wall {
+    pub id: u32,
+    /// Size of the wall in world units (half-extents for avian cuboid).
+    pub size: Vec3,
+    /// Position of the wall center.
+    pub position: Vec3,
+}
+
 /// How the pieces are built and stepped. Every field is an index into a table above, so no value
 /// outside the tables can be chosen.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -75,6 +101,14 @@ pub struct Setup {
     pub scale: usize,
     pub restitution: usize,
     pub friction: usize,
+    pub gravity: usize,
+    pub board_rotation: usize,
+    pub board_size: usize,
+    pub floor_restitution: usize,
+    pub layers: usize,
+    pub density: usize,
+    pub camera_distance: usize,
+    pub camera_height: usize,
 }
 
 impl Default for Setup {
@@ -87,6 +121,14 @@ impl Default for Setup {
             scale: 1,
             restitution: 0,
             friction: 1,
+            gravity: 3,
+            board_rotation: 0,
+            board_size: 1,
+            floor_restitution: 0,
+            layers: 1,
+            density: 2,
+            camera_distance: 1,
+            camera_height: 2,
         }
     }
 }
@@ -122,10 +164,50 @@ impl Setup {
         COEFFICIENTS[self.friction]
     }
 
+    /// Gravity strength.
+    pub fn gravity(&self) -> f32 {
+        GRAVITIES[self.gravity]
+    }
+
+    /// Board rotation in degrees.
+    pub fn board_rotation(&self) -> f32 {
+        BOARD_ROTATIONS[self.board_rotation]
+    }
+
+    /// Board size multiplier.
+    pub fn board_size(&self) -> f32 {
+        BOARD_SIZES[self.board_size]
+    }
+
+    /// Floor restitution.
+    pub fn floor_restitution(&self) -> f32 {
+        FLOOR_RESTITUTIONS[self.floor_restitution]
+    }
+
+    /// Number of render layers.
+    pub fn layers(&self) -> u8 {
+        LAYER_COUNTS[self.layers]
+    }
+
+    /// Density multiplier.
+    pub fn density(&self) -> f32 {
+        DENSITIES[self.density]
+    }
+
+    /// Camera distance from the board.
+    pub fn camera_distance(&self) -> f32 {
+        CAMERA_DISTANCES[self.camera_distance]
+    }
+
+    /// Camera height above the board.
+    pub fn camera_height(&self) -> f32 {
+        CAMERA_HEIGHTS[self.camera_height]
+    }
+
     /// A one-line summary for the status panel.
     pub fn summary(&self) -> String {
         format!(
-            "{} {} | {} Hz x{} | scale {} | bounce {} grip {}",
+            "{} {} | {} Hz x{} | scale {} | bounce {} grip {} | gravity {} | board {}° x{} | floor {} | density {} | layers {} | cam {}x{}",
             self.collider.label(),
             detail_label(self.detail()),
             RATES[self.rate],
@@ -133,6 +215,14 @@ impl Setup {
             self.scale(),
             self.restitution(),
             self.friction(),
+            self.gravity(),
+            self.board_rotation(),
+            self.board_size(),
+            self.floor_restitution(),
+            self.density(),
+            self.layers(),
+            self.camera_distance(),
+            self.camera_height(),
         )
     }
 }
@@ -148,11 +238,19 @@ pub enum Page {
     Scale,
     Bounce,
     Grip,
+    Gravity,
+    BoardRotation,
+    BoardSize,
+    FloorBounce,
+    Layers,
+    Density,
+    CameraDistance,
+    CameraHeight,
 }
 
 impl Page {
     /// The pages the root opens.
-    const SETTINGS: [Self; 7] = [
+    const SETTINGS: [Self; 14] = [
         Self::Collider,
         Self::Detail,
         Self::Rate,
@@ -160,6 +258,13 @@ impl Page {
         Self::Scale,
         Self::Bounce,
         Self::Grip,
+        Self::Gravity,
+        Self::BoardRotation,
+        Self::BoardSize,
+        Self::FloorBounce,
+        Self::Layers,
+        Self::Density,
+        Self::CameraDistance,
     ];
 
     fn name(self) -> &'static str {
@@ -172,6 +277,14 @@ impl Page {
             Self::Scale => "scale",
             Self::Bounce => "bounce",
             Self::Grip => "grip",
+            Self::Gravity => "gravity",
+            Self::BoardRotation => "board rotation",
+            Self::BoardSize => "board size",
+            Self::FloorBounce => "floor bounce",
+            Self::Layers => "layers",
+            Self::Density => "density",
+            Self::CameraDistance => "camera distance",
+            Self::CameraHeight => "camera height",
         }
     }
 }
@@ -187,8 +300,17 @@ pub enum Item {
     Scale(usize),
     Bounce(usize),
     Grip(usize),
+    Gravity(usize),
+    BoardRotation(usize),
+    BoardSize(usize),
+    FloorBounce(usize),
+    Layers(usize),
+    Density(usize),
+    CameraDistance(usize),
+    CameraHeight(usize),
     Play,
     Clear,
+    AddWall,
 }
 
 /// The state of the lab.
@@ -197,6 +319,7 @@ pub struct Lab {
     pub screen: Screen,
     pub menu: Option<Page>,
     pub pieces: Vec<Piece>,
+    pub walls: Vec<Wall>,
     pub next_id: u32,
     pub setup: Setup,
     pub running: bool,
@@ -209,6 +332,7 @@ impl Lab {
             screen,
             menu: None,
             pieces: Vec::new(),
+            walls: Vec::new(),
             next_id: 0,
             setup: Setup::default(),
             running: false,
@@ -339,8 +463,17 @@ impl Petal<Lab> for Item {
             Self::Scale(index) => format!("scale-{index}"),
             Self::Bounce(index) => format!("bounce-{index}"),
             Self::Grip(index) => format!("grip-{index}"),
+            Self::Gravity(index) => format!("gravity-{index}"),
+            Self::BoardRotation(index) => format!("board-rotation-{index}"),
+            Self::BoardSize(index) => format!("board-size-{index}"),
+            Self::FloorBounce(index) => format!("floor-bounce-{index}"),
+            Self::Layers(index) => format!("layers-{index}"),
+            Self::Density(index) => format!("density-{index}"),
+            Self::CameraDistance(index) => format!("camera-distance-{index}"),
+            Self::CameraHeight(index) => format!("camera-height-{index}"),
             Self::Play => "play".into(),
             Self::Clear => "clear".into(),
+            Self::AddWall => "add-wall".into(),
         }
     }
 
@@ -353,9 +486,18 @@ impl Petal<Lab> for Item {
             Self::Substeps(index) => format!("{} sub", SUBSTEPS[*index]),
             Self::Scale(index) => format!("x{}", SCALES[*index]),
             Self::Bounce(index) | Self::Grip(index) => format!("{}", COEFFICIENTS[*index]),
+            Self::Gravity(index) => format!("{:.1}", GRAVITIES[*index]),
+            Self::BoardRotation(index) => format!("{}°", BOARD_ROTATIONS[*index]),
+            Self::BoardSize(index) => format!("x{}", BOARD_SIZES[*index]),
+            Self::FloorBounce(index) => format!("{}", FLOOR_RESTITUTIONS[*index]),
+            Self::Layers(index) => format!("{}", LAYER_COUNTS[*index]),
+            Self::Density(index) => format!("{}", DENSITIES[*index]),
+            Self::CameraDistance(index) => format!("{}", CAMERA_DISTANCES[*index]),
+            Self::CameraHeight(index) => format!("{}", CAMERA_HEIGHTS[*index]),
             Self::Play if lab.running => "stop".into(),
             Self::Play => "play".into(),
             Self::Clear => "clear".into(),
+            Self::AddWall => "add wall".into(),
         }
     }
 
@@ -364,6 +506,7 @@ impl Petal<Lab> for Item {
             Self::Open(_) => Color::srgb(0.35, 0.5, 0.85),
             Self::Play => Color::srgb(0.3, 0.75, 0.45),
             Self::Clear => Color::srgb(0.85, 0.35, 0.3),
+            Self::AddWall => Color::srgb(0.6, 0.5, 0.85),
             _ => Color::srgb(0.9, 0.65, 0.25),
         }
     }
@@ -382,8 +525,16 @@ impl Petal<Lab> for Item {
             Self::Scale(index) => setup.scale == *index,
             Self::Bounce(index) => setup.restitution == *index,
             Self::Grip(index) => setup.friction == *index,
+            Self::Gravity(index) => setup.gravity == *index,
+            Self::BoardRotation(index) => setup.board_rotation == *index,
+            Self::BoardSize(index) => setup.board_size == *index,
+            Self::FloorBounce(index) => setup.floor_restitution == *index,
+            Self::Layers(index) => setup.layers == *index,
+            Self::Density(index) => setup.density == *index,
+            Self::CameraDistance(index) => setup.camera_distance == *index,
+            Self::CameraHeight(index) => setup.camera_height == *index,
             Self::Play => lab.running,
-            Self::Open(_) | Self::Clear => false,
+            Self::Open(_) | Self::Clear | Self::AddWall => false,
         }
     }
 
@@ -401,10 +552,28 @@ impl Petal<Lab> for Item {
             Self::Scale(index) => next.setup.scale = *index,
             Self::Bounce(index) => next.setup.restitution = *index,
             Self::Grip(index) => next.setup.friction = *index,
+            Self::Gravity(index) => next.setup.gravity = *index,
+            Self::BoardRotation(index) => next.setup.board_rotation = *index,
+            Self::BoardSize(index) => next.setup.board_size = *index,
+            Self::FloorBounce(index) => next.setup.floor_restitution = *index,
+            Self::Layers(index) => next.setup.layers = *index,
+            Self::Density(index) => next.setup.density = *index,
+            Self::CameraDistance(index) => next.setup.camera_distance = *index,
+            Self::CameraHeight(index) => next.setup.camera_height = *index,
             Self::Play => next.running = !lab.running,
             Self::Clear => {
                 next.pieces.clear();
+                next.walls.clear();
                 next.running = false;
+            }
+            Self::AddWall => {
+                let wall_id = next.next_id;
+                next.next_id += 1;
+                next.walls.push(Wall {
+                    id: wall_id,
+                    size: Vec3::new(0.15, 2.0, 2.0),
+                    position: Vec3::new(0.0, 2.0, 0.0),
+                });
             }
         }
         next
@@ -422,7 +591,7 @@ impl Ring<Lab> for Page {
         match self {
             Self::Root => {
                 let mut items: Vec<Item> = Self::SETTINGS.into_iter().map(Item::Open).collect();
-                items.extend([Item::Play, Item::Clear]);
+                items.extend([Item::Play, Item::Clear, Item::AddWall]);
                 items
             }
             Self::Collider => ColliderKind::ALL.into_iter().map(Item::Collider).collect(),
@@ -432,12 +601,27 @@ impl Ring<Lab> for Page {
             Self::Scale => (0..SCALES.len()).map(Item::Scale).collect(),
             Self::Bounce => (0..COEFFICIENTS.len()).map(Item::Bounce).collect(),
             Self::Grip => (0..COEFFICIENTS.len()).map(Item::Grip).collect(),
+            Self::Gravity => (0..GRAVITIES.len()).map(Item::Gravity).collect(),
+            Self::BoardRotation => (0..BOARD_ROTATIONS.len())
+                .map(Item::BoardRotation)
+                .collect(),
+            Self::BoardSize => (0..BOARD_SIZES.len()).map(Item::BoardSize).collect(),
+            Self::FloorBounce => (0..FLOOR_RESTITUTIONS.len())
+                .map(Item::FloorBounce)
+                .collect(),
+            Self::Layers => (0..LAYER_COUNTS.len()).map(Item::Layers).collect(),
+            Self::Density => (0..DENSITIES.len()).map(Item::Density).collect(),
+            Self::CameraDistance => (0..CAMERA_DISTANCES.len())
+                .map(Item::CameraDistance)
+                .collect(),
+            Self::CameraHeight => (0..CAMERA_HEIGHTS.len()).map(Item::CameraHeight).collect(),
         }
     }
 
     fn all(_lab: &Lab) -> Vec<Self> {
         let mut pages = vec![Self::Root];
         pages.extend(Self::SETTINGS);
+        pages.push(Self::CameraHeight);
         pages
     }
 }

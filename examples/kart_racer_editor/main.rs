@@ -122,7 +122,6 @@ fn editor(app: &mut App) -> &mut App {
         .add_systems(Startup, setup)
 }
 
-
 /// Run this example. Called by the WASM runner.
 pub fn run(app: &mut App) {
     app.add_plugins(common::default_plugins("kart racer editor"));
@@ -133,8 +132,7 @@ pub fn run(app: &mut App) {
                 .with_title("kart_racer_editor")
                 .with_description("Pull, widen, sculpt")
                 .animation(TOUR_FRAMES),
-        )
-        ;
+        );
 }
 
 fn main() {

@@ -225,12 +225,10 @@ fn view(scene: &Scene) -> View<Scene> {
     view
 }
 
-
 /// Run this example. Called by the WASM runner.
 pub fn run(app: &mut App) {
     let scene = Scene::initial();
-    app
-        .add_plugins(common::default_plugins("gizmo_3d"))
+    app.add_plugins(common::default_plugins("gizmo_3d"))
         .add_plugins(DraggablePlugin::new(scene, view))
         .add_plugins(ScriptedDragPlugin::straight(
             Vec2::new(PIVOT.x + 0.85, PIVOT.y),
@@ -248,8 +246,7 @@ pub fn run(app: &mut App) {
                 Vec3::new(0.0, 3.4, 9.5),
                 Vec3::new(0.0, 1.2, 0.0),
             );
-        })
-        ;
+        });
 }
 
 fn main() {

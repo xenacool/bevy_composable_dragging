@@ -310,6 +310,30 @@ fn check_depth_lock(initial: &Reading, final_r: &Reading, eps: f32, index: u64) 
     failures
 }
 
+/// Check property 7: settles – after being dropped, every body comes to rest.
+/// A body is settled when its velocity magnitude is below a threshold and it is either asleep
+/// or has been below the threshold for a sustained period.
+fn check_settles(readings: &[Reading], index: u64) -> Vec<Failure> {
+    let mut failures = Vec::new();
+    // A body is settled if its velocity is negligible.  The threshold is generous enough to
+    // allow for solver noise but tight enough to catch bodies that bounce or slide forever.
+    let velocity_threshold = 1e-3;
+    for (i, r) in readings.iter().enumerate() {
+        let speed = r.velocity.length();
+        if speed > velocity_threshold {
+            failures.push(Failure {
+                index,
+                property: "settles",
+                message: format!(
+                    "body {i} speed {speed:.4} > threshold {velocity_threshold} (vel {:?}, asleep {})",
+                    r.velocity, r.asleep
+                ),
+            });
+        }
+    }
+    failures
+}
+
 // ---------------------------------------------------------------------------
 // Scene builders
 // ---------------------------------------------------------------------------
@@ -505,6 +529,50 @@ fn run_two_body_scene(params: &SceneParams, index: u64) -> Vec<Failure> {
     failures
 }
 
+/// Run a settles scene: drop bodies from height and check they come to rest.
+/// Bodies are dropped with some initial horizontal velocity and random rotation
+/// to test that friction and restitution cause them to settle on the ground.
+fn run_settles_scene(params: &SceneParams, index: u64) -> Vec<Failure> {
+    let mut failures = Vec::new();
+    let gravity = 9.81;
+    let rig = Rig {
+        step: params.timestep,
+        substeps: params.substeps,
+        gravity,
+    };
+
+    let mut lab = Lab::new(rig);
+
+    // Drop a body from a moderate height with some horizontal velocity.
+    let stream = split_mix64(index.wrapping_add(300));
+    let vx = draw_range(stream, -2.0, 2.0);
+    let vy = draw_range(stream.wrapping_add(1), 0.0, 3.0);
+    let start_pos = Vec3::new(0.0, 5.0, 0.0);
+    let velocity = Vec3::new(vx, vy, 0.0);
+
+    let body = build_free_flight_body(params, start_pos, velocity);
+    let entity = lab.spawn(body);
+    lab.lock_depth(entity);
+
+    // Step for a long enough duration that the body should have settled.
+    // With gravity 9.81 and drop height 5, the body hits the ground in ~1 second.
+    // We give it 5 seconds to settle, which should be enough for any reasonable
+    // combination of restitution and friction.
+    let duration = 5.0;
+    let steps = steps_for(duration, params.timestep);
+    lab.step(steps);
+
+    let final_r = lab.read(entity).expect("body should still exist");
+
+    // Property 1: finite poses
+    failures.extend(check_finite_poses(&[final_r], index));
+
+    // Property 7: settles
+    failures.extend(check_settles(&[final_r], index));
+
+    failures
+}
+
 // ---------------------------------------------------------------------------
 // Fuzz runner
 // ---------------------------------------------------------------------------
@@ -529,6 +597,7 @@ fn run_fuzz(offset: u64, count: usize) -> Vec<Failure> {
         all_failures.extend(run_free_flight(&params, idx));
         all_failures.extend(run_per_step_check(&params, idx));
         all_failures.extend(run_two_body_scene(&params, idx));
+        all_failures.extend(run_settles_scene(&params, idx));
     }
 
     all_failures

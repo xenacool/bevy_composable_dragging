@@ -118,14 +118,12 @@ fn view(hanoi: &Hanoi) -> View<Hanoi> {
     view
 }
 
-
 /// Run this example. Called by the WASM runner.
 pub fn run(app: &mut App) {
     let hanoi = Hanoi {
         pegs: [(0..DISKS).rev().collect(), Vec::new(), Vec::new()],
     };
-    app
-        .add_plugins(common::default_plugins("gradient_hanoi_3d"))
+    app.add_plugins(common::default_plugins("gradient_hanoi_3d"))
         .add_plugins(DraggablePlugin::new(hanoi, view))
         .add_plugins(ScriptedDragPlugin::straight(
             disk_position(0, DISKS - 1),
@@ -143,8 +141,7 @@ pub fn run(app: &mut App) {
                 Vec3::new(0.0, 3.2, 9.5),
                 Vec3::new(0.0, 1.3, 0.0),
             );
-        })
-        ;
+        });
 }
 
 fn main() {

@@ -184,3 +184,31 @@ screenshots:
 
 clean:
 	cargo clean
+
+# Release target: sanity-checks all screenshots and packages them into a zip for GitHub Releases.
+# Use this locally before uploading, and in CI to gate releases.
+VERSION := $(shell grep '^version =' Cargo.toml | head -1 | sed 's/version = "\(.*\)"/\1/')
+
+release-zip: screenshots
+	@echo "=== Validating screenshots ==="
+	@for f in screenshots/*.webp; do \
+		if [ -f "$$f" ]; then \
+			if ! file "$$f" | grep -q "Web/P"; then \
+				echo "ERROR: $$f is not a valid WebP"; exit 1; \
+			fi; \
+		fi; \
+	done
+	@count=$$(ls screenshots/*.webp 2>/dev/null | wc -l); \
+	echo "Found $$count screenshot files"
+	@rm -f screenshots-v$(VERSION).zip
+	@cd screenshots && zip -r ../screenshots-v$(VERSION).zip *.webp 2>/dev/null || \
+		(cd screenshots && zip ../screenshots-v$(VERSION).zip *.webp)
+	@echo "Created screenshots-v$(VERSION).zip ($$(du -h ../screenshots-v$(VERSION).zip | cut -f1))"
+
+release: release-zip
+	@echo ""
+	@echo "Upload to GitHub with:"
+	@echo "  gh release create v$(VERSION) screenshots-v$(VERSION).zip --title 'v$(VERSION)' --notes '...'"
+	@echo ""
+	@echo "Or amend an existing release:"
+	@echo "  gh release upload v$(VERSION) screenshots-v$(VERSION).zip --clobber"

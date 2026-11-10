@@ -66,11 +66,9 @@ fn view(state: &Choice) -> View<Choice> {
     )
 }
 
-
 /// Run this example. Called by the WASM runner.
 pub fn run(app: &mut App) {
-    app
-        .add_plugins(common::default_plugins("three_way"))
+    app.add_plugins(common::default_plugins("three_way"))
         .add_plugins(DraggablePlugin::new(Choice::Red, view))
         .add_plugins(ScriptedDragPlugin::straight(
             Vec2::new(-2.5, 0.0),
@@ -84,8 +82,7 @@ pub fn run(app: &mut App) {
         )
         .add_systems(Startup, |mut commands: Commands| {
             common::spawn_cameras(&mut commands, 5.0);
-        })
-        ;
+        });
 }
 
 fn main() {

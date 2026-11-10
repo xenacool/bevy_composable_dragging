@@ -21,11 +21,12 @@ pub enum Primitive {
     Ring,
     Star,
     Compound,
+    Spline,
 }
 
 impl Primitive {
     /// Every shape of the palette.
-    pub const ALL: [Self; 11] = [
+    pub const ALL: [Self; 12] = [
         Self::Sphere,
         Self::Cuboid,
         Self::Cylinder,
@@ -37,6 +38,7 @@ impl Primitive {
         Self::Ring,
         Self::Star,
         Self::Compound,
+        Self::Spline,
     ];
 
     /// The name shown in tables.
@@ -54,6 +56,7 @@ impl Primitive {
             Self::Ring => "ring",
             Self::Star => "star",
             Self::Compound => "compound",
+            Self::Spline => "spline",
         }
     }
 
@@ -96,6 +99,7 @@ impl Primitive {
                 ShapePart::new(Shape::sphere(size / 4.0, detail))
                     .with_transform(Transform::from_xyz(0.0, size / 4.0, 0.0)),
             ]),
+            Self::Spline => Shape::torus(size * 0.3, size * 0.1, 0.0, std::f32::consts::TAU),
         }
     }
 }

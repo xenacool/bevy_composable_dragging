@@ -497,7 +497,6 @@ fn spawn_banner_camera(mut commands: Commands) {
     ));
 }
 
-
 /// Run this example. Called by the WASM runner.
 pub fn run(app: &mut App) {
     app.add_plugins(common::default_plugins("cozy_castle"));
@@ -509,8 +508,7 @@ pub fn run(app: &mut App) {
                 .with_title("cozy_castle")
                 .with_description("menu, stacks, arches")
                 .animation(MAX_FRAMES),
-        )
-        ;
+        );
 }
 
 fn main() {

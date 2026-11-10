@@ -150,7 +150,6 @@ fn view(board: &Board) -> View<Board> {
     view
 }
 
-
 /// Run this example. Called by the WASM runner.
 pub fn run(app: &mut App) {
     let tiles = [(0, 0), (1, 1), (5, 2), (7, 0), (11, 1), (12, 2)]
@@ -164,8 +163,7 @@ pub fn run(app: &mut App) {
         })
         .collect();
     let board = Board { tiles, next_id: 6 };
-    app
-        .add_plugins(common::default_plugins("tessellations"))
+    app.add_plugins(common::default_plugins("tessellations"))
         .add_plugins(DraggablePlugin::new(board, view))
         .add_plugins(ScriptedDragPlugin::straight(
             tool_position(0),
@@ -179,8 +177,7 @@ pub fn run(app: &mut App) {
         )
         .add_systems(Startup, |mut commands: Commands| {
             common::spawn_cameras(&mut commands, 7.0);
-        })
-        ;
+        });
 }
 
 fn main() {

@@ -49,11 +49,9 @@ fn view(state: &Slider) -> View<Slider> {
         )
 }
 
-
 /// Run this example. Called by the WASM runner.
 pub fn run(app: &mut App) {
-    app
-        .add_plugins(common::default_plugins("slider"))
+    app.add_plugins(common::default_plugins("slider"))
         .add_plugins(DraggablePlugin::new(Slider { value: 0.2 }, view))
         .add_plugins(ScriptedDragPlugin::straight(
             knob_position(0.2),
@@ -67,8 +65,7 @@ pub fn run(app: &mut App) {
         )
         .add_systems(Startup, |mut commands: Commands| {
             common::spawn_cameras(&mut commands, 5.0);
-        })
-        ;
+        });
 }
 
 fn main() {

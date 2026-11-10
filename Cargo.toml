@@ -1,6 +1,6 @@
 [package]
 name = "bevy_composable_dragging"
-version = "0.3.3" # Must always aligned with bevy_gradmesh. Don't forget to update README.md and book/
+version = "0.3.4" # Must always aligned with bevy_gradmesh. Don't forget to update README.md and book/
 authors = ["Jessica Collins (https://github.com/xenacool)"]
 edition = "2024"
 rust-version = "1.87"
@@ -50,16 +50,19 @@ gradmesh = ["dep:bevy_gradmesh", "pbr"]
 shapes-2d = ["gradmesh"]
 # Gradient shapes from `bevy_gradmesh` for 3D scenes.
 shapes-3d = ["gradmesh"]
+# Property-based fuzz tests for the physics lab example (slow — not in default test runs).
+fuzz = []
 
 [dependencies]
 bevy = { version = "0.20", default-features = false, features = ["bevy_color", "bevy_scene"] }
-bevy_gradmesh = { version = "0.3.3", optional = true }
+bevy_gradmesh = { version = "0.3.4", optional = true }
 
 # Examples need windowing, tonemapping LUT textures and PNG support which the library does not require.
 [dev-dependencies]
 bevy = { version = "0.20", features = ["bevy_pbr", "mesh_picking", "tonemapping_luts", "png"] }
 # Colliders and rigid bodies for the examples and the physics tests. Avian reads meshes only, so
 # the headless tests need no GPU.
+avian2d = { version = "0.8", default-features = false, features = ["2d", "parry-f32", "parallel"] }
 avian3d = { version = "0.8", default-features = false, features = ["3d", "parry-f32", "collider-from-mesh", "parallel"] }
 
 [[example]]
@@ -132,6 +135,12 @@ required-features = ["shapes-3d"]
 name = "tactile_tessellations"
 path = "examples/tactile_tessellations.rs"
 required-features = ["shapes-2d"]
+test = true
+
+[[example]]
+name = "tactile_tessellations_3d"
+path = "examples/tactile_tessellations_3d.rs"
+required-features = ["shapes-3d"]
 test = true
 
 [[example]]

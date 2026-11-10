@@ -41,16 +41,17 @@ fn follow<S: Clone + Send + Sync + 'static>(
             return Box::new(move |_| Frame::new(view.clone(), state.clone(), f32::INFINITY));
         };
         let context = DragContext::with_view_fn(context.view_fn(), dragged.clone(), state.clone())
-            .with_grab_offset(context.grab_offset());
+            .with_grab_offset(context.grab_offset())
+            .with_space(*context.space());
         spec.compile(&context)
     })
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::space::Pointer;
+    use crate::space::{DragSpace, Pointer};
 
-    use bevy::math::Vec2;
+    use bevy::math::{Dir3, Vec2, Vec3};
 
     use super::*;
     use crate::ops::{state, vary};
@@ -160,5 +161,109 @@ mod tests {
         let frame = behavior(Pointer::from(Vec2::ZERO));
         assert_eq!(frame.drop_state.tile, 1.0);
         assert!(frame.gap.is_infinite());
+    }
+
+    /// A test that would have caught the follow.rs DragSpace propagation bug.
+    ///
+    /// The bug: when `switch_to_state_and_follow` created a child `DragContext`, it didn't call
+    /// `.with_space()`, so the child defaulted to the XY world plane. In 3D, where the parent
+    /// drag space is the XZ ground plane (`DragSpace::plane(Vec3::ZERO, Dir3::Y)`), this meant
+    /// palette items dragged on the XZ plane would move in the wrong direction because the child
+    /// context resolved pointers on the XY plane instead.
+    ///
+    /// This test verifies that the child context inherits the parent's DragSpace by dragging a
+    /// tool on the XZ ground plane and checking the tile follows the pointer on that same plane.
+    #[test]
+    fn switch_to_state_and_follow_propagates_drag_space() {
+        // A scene where a tool on the XZ ground plane creates a tile that can be dragged.
+        #[derive(Clone)]
+        struct GroundScene {
+            tile_created: bool,
+            tile_x: f32,
+            tile_z: f32,
+        }
+
+        fn ground_view(state: &GroundScene) -> View<GroundScene> {
+            let mut view = View::new().with(
+                ViewNode::circle("tool", 1.0)
+                    .at(Vec3::new(-50.0, 0.0, 0.0))
+                    .draggable(|| {
+                        switch_to_state_and_follow(
+                            GroundScene {
+                                tile_created: true,
+                                tile_x: -50.0,
+                                tile_z: 0.0,
+                            },
+                            "tile",
+                        )
+                    }),
+            );
+            if state.tile_created {
+                let current = state.clone();
+                view.push(
+                    ViewNode::circle("tile", 1.0)
+                        .at(Vec3::new(state.tile_x, 0.0, state.tile_z))
+                        .draggable(move || {
+                            vary(
+                                current.clone(),
+                                [
+                                    param!(GroundScene, tile_x),
+                                    param!(GroundScene, tile_z),
+                                ],
+                            )
+                        }),
+                );
+            }
+            view
+        }
+
+        // Parent context uses the XZ ground plane (normal = Y).
+        let xz_plane = DragSpace::plane(Vec3::ZERO, Dir3::Y);
+        let context = DragContext::new(
+            ground_view,
+            "tool".into(),
+            GroundScene {
+                tile_created: false,
+                tile_x: 0.0,
+                tile_z: 0.0,
+            },
+        )
+        .with_space(xz_plane);
+
+        let spec = ground_view(&GroundScene {
+            tile_created: false,
+            tile_x: 0.0,
+            tile_z: 0.0,
+        })
+        .get("tool")
+        .and_then(|node| node.drag_spec(&GroundScene {
+            tile_created: false,
+            tile_x: 0.0,
+            tile_z: 0.0,
+        }))
+        .unwrap();
+
+        let mut behavior = spec.compile(&context);
+
+        // Move pointer to (3, 0, 5) on the XZ plane.  The vary spec varies tile_x and tile_z,
+        // so the tile should follow the pointer on the XZ ground plane.
+        //
+        // If the child context incorrectly used the default XY plane, the pointer's Z
+        // coordinate would be ignored and the tile would not follow in the Z direction.
+        let pointer = Pointer::at(Vec3::new(3.0, 0.0, 5.0));
+        let frame = behavior(pointer);
+
+        assert!(frame.drop_state.tile_created, "tile should be created");
+        // The tile should follow the pointer on the XZ plane.
+        assert!(
+            (frame.drop_state.tile_x - 3.0).abs() < 1e-2,
+            "tile X should follow pointer: got {}, expected 3.0",
+            frame.drop_state.tile_x
+        );
+        assert!(
+            (frame.drop_state.tile_z - 5.0).abs() < 1e-2,
+            "tile Z should follow pointer: got {}, expected 5.0",
+            frame.drop_state.tile_z
+        );
     }
 }

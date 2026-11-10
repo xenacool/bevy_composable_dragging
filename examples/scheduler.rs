@@ -132,7 +132,6 @@ fn view(schedule: &Schedule) -> View<Schedule> {
     view
 }
 
-
 /// Run this example. Called by the WASM runner.
 pub fn run(app: &mut App) {
     let schedule = Schedule {
@@ -164,8 +163,7 @@ pub fn run(app: &mut App) {
             },
         ],
     };
-    app
-        .add_plugins(common::default_plugins("scheduler"))
+    app.add_plugins(common::default_plugins("scheduler"))
         .add_plugins(DraggablePlugin::new(schedule, view))
         .add_plugins(ScriptedDragPlugin::straight(
             Vec2::new(hour_x(3.25), lane_y(1)),
@@ -179,8 +177,7 @@ pub fn run(app: &mut App) {
         )
         .add_systems(Startup, |mut commands: Commands| {
             common::spawn_cameras(&mut commands, 6.0);
-        })
-        ;
+        });
 }
 
 fn main() {

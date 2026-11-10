@@ -87,11 +87,9 @@ fn view(corner: &Corner) -> View<Corner> {
     )
 }
 
-
 /// Run this example. Called by the WASM runner.
 pub fn run(app: &mut App) {
-    app
-        .add_plugins(common::default_plugins("blend_square"))
+    app.add_plugins(common::default_plugins("blend_square"))
         .add_plugins(DraggablePlugin::new(Corner::Coral, view))
         .add_plugins(ScriptedDragPlugin::straight(
             Corner::Coral.position(),
@@ -105,8 +103,7 @@ pub fn run(app: &mut App) {
         )
         .add_systems(Startup, |mut commands: Commands| {
             common::spawn_cameras(&mut commands, 7.0);
-        })
-        ;
+        });
 }
 
 fn main() {

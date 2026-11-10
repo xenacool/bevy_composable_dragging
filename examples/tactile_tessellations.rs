@@ -40,11 +40,12 @@
 
 use std::f32::consts::{FRAC_PI_2, PI, TAU};
 
+use avian2d::prelude::{Collider, PhysicsPlugins, RigidBody};
 use bevy::prelude::*;
 use bevy_composable_dragging::ops::{
-    closest, custom, drop_target, state, switch_to_state_and_follow, vary,
+    closest, custom, drop_target, state, switch_to_state_and_follow, vary_constrained,
 };
-use bevy_composable_dragging::{DragSpec, DraggablePlugin, Param, View, ViewNode};
+use bevy_composable_dragging::{Constraint, DragSpec, DraggablePlugin, Param, View, ViewNode};
 use bevy_gradmesh::{Shape, ShapeDetail, Style};
 
 mod common;
@@ -291,7 +292,7 @@ fn tile_param(id: u32, get: fn(&Tile) -> f32, set: fn(&mut Tile, f32)) -> Param<
 }
 
 /// The drag of a tile: snap to the nearest valid edge, drop on the bin to delete, or follow the
-/// pointer when far from both.
+/// pointer when far from both, but never overlap another tile.
 fn tile_spec(board: &Board, id: u32) -> DragSpec<Board> {
     let tile = board.tile(id);
     let snaps = compute_snaps(tile.sides, &board.tiles, Some(id));
@@ -300,12 +301,24 @@ fn tile_spec(board: &Board, id: u32) -> DragSpec<Board> {
         .map(|snap| state(board.snapped(id, snap)))
         .collect();
     branches.push(drop_target(TRASH, board.without(id)));
-    let free = vary(
+    let sides = tile.sides;
+    let other_tiles: Vec<Tile> = board.tiles.iter().filter(|t| t.id != id).cloned().collect();
+    let no_overlap = Constraint::new(move |state: &Board| {
+        let t = state.tile(id);
+        if overlaps_any(sides, t.pos, t.rot_deg, &other_tiles, None) {
+            100.0
+        } else {
+            0.0
+        }
+    });
+    let free = vary_constrained(
         board.clone(),
         [
             tile_param(id, |tile| tile.pos.x, |tile, x| tile.pos.x = x),
             tile_param(id, |tile| tile.pos.y, |tile, y| tile.pos.y = y),
+            tile_param(id, |tile| tile.rot_deg, |tile, r| tile.rot_deg = r).with_scale(360.0),
         ],
+        no_overlap,
     );
     let node = tile_id(id);
     anchored_at_center(closest(branches).when_far(free, GAP)).change_result(move |mut frame| {
@@ -450,6 +463,16 @@ fn view(board: &Board) -> View<Board> {
     view
 }
 
+/// Adds colliders to every tile entity so avian can detect overlap.
+fn spawn_tile_colliders(mut commands: Commands, tiles: Query<(Entity, &Name), Without<RigidBody>>) {
+    for (entity, name) in &tiles {
+        if name.as_str().starts_with("shape-") {
+            commands
+                .entity(entity)
+                .insert((RigidBody::Static, Collider::rectangle(SIDE, SIDE)));
+        }
+    }
+}
 
 /// Run this example. Called by the WASM runner.
 pub fn run(app: &mut App) {
@@ -475,9 +498,10 @@ pub fn run(app: &mut App) {
         next_id: 2,
     };
     let target = edges(&world_vertices(6, hexagon.pos, 0.0))[5].mid() + Vec2::new(-0.3, 0.2);
-    app
-        .add_plugins(common::default_plugins("tactile_tessellations"))
+    app.add_plugins(common::default_plugins("tactile_tessellations"))
+        .add_plugins(PhysicsPlugins::default())
         .add_plugins(DraggablePlugin::new(board, view))
+        .add_systems(Startup, spawn_tile_colliders)
         .add_plugins(ScriptedDragPlugin::straight(palette_position(4), target))
         .add_plugins(
             AutoScreenshotPlugin::new("screenshot_tactile_tessellations.webp")
@@ -487,8 +511,7 @@ pub fn run(app: &mut App) {
         )
         .add_systems(Startup, |mut commands: Commands| {
             common::spawn_cameras(&mut commands, CANVAS_HEIGHT);
-        })
-        ;
+        });
 }
 
 fn main() {
@@ -516,7 +539,9 @@ fn main() {
     let target = edges(&world_vertices(6, hexagon.pos, 0.0))[5].mid() + Vec2::new(-0.3, 0.2);
     App::new()
         .add_plugins(common::default_plugins("tactile_tessellations"))
+        .add_plugins(PhysicsPlugins::default())
         .add_plugins(DraggablePlugin::new(board, view))
+        .add_systems(Startup, spawn_tile_colliders)
         .add_plugins(ScriptedDragPlugin::straight(palette_position(4), target))
         .add_plugins(
             AutoScreenshotPlugin::new("screenshot_tactile_tessellations.webp")

@@ -5,19 +5,16 @@ use bevy::prelude::*;
 mod common;
 use common::screenshot::AutoScreenshotPlugin;
 
-
 /// Run this example. Called by the WASM runner.
 pub fn run(app: &mut App) {
-    app
-        .add_plugins(common::default_plugins("hello"))
+    app.add_plugins(common::default_plugins("hello"))
         .add_plugins(
             AutoScreenshotPlugin::new("screenshot_hello.png")
                 .with_title("hello")
                 .with_description("Static scene")
                 .wait_frames(10),
         )
-        .add_systems(Startup, setup)
-        ;
+        .add_systems(Startup, setup);
 }
 
 fn main() {

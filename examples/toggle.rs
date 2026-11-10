@@ -33,11 +33,9 @@ fn view(state: &Toggle) -> View<Toggle> {
         )
 }
 
-
 /// Run this example. Called by the WASM runner.
 pub fn run(app: &mut App) {
-    app
-        .add_plugins(common::default_plugins("toggle"))
+    app.add_plugins(common::default_plugins("toggle"))
         .add_plugins(DraggablePlugin::new(Toggle::Off, view))
         .add_plugins(ScriptedDragPlugin::straight(
             Vec2::new(-0.9, 0.0),
@@ -51,8 +49,7 @@ pub fn run(app: &mut App) {
         )
         .add_systems(Startup, |mut commands: Commands| {
             common::spawn_cameras(&mut commands, 5.0);
-        })
-        ;
+        });
 }
 
 fn main() {
