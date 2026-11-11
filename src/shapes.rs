@@ -30,7 +30,7 @@ impl Geometry {
             #[cfg(feature = "gradmesh")]
             Self::Grad(shape) => shape.build(),
             #[cfg(feature = "gradmesh")]
-            Self::Sdf(shape) => Rectangle::from_size(shape.quad_size()).into(),
+            Self::Sdf(material) => Rectangle::from_size(material.quad_scale().truncate()).into(),
             #[cfg(feature = "pbr")]
             Self::Mesh(mesh) => return Err(mesh.handle()),
         })
@@ -231,14 +231,15 @@ impl Looks<'_> {
         node: &ViewNode<S>,
         opacity: f32,
     ) {
-        if let Geometry::Sdf(shape) = &node.geometry {
+        if let Geometry::Sdf(base) = &node.geometry {
             let Some(sdf) = self.sdf_2d.as_mut() else {
                 return;
             };
             let mut color = node.color;
             color.alpha *= opacity;
+            let material = base.clone().with_color(color.into());
             entity
-                .insert(MeshMaterial2d(sdf.add(shape.material(color))))
+                .insert(MeshMaterial2d(sdf.add(material)))
                 .remove::<MeshMaterial2d<ColorMaterial>>()
                 .remove::<MeshMaterial2d<GradMeshMaterial2d>>();
             return;

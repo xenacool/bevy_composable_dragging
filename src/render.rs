@@ -212,7 +212,7 @@ mod tests {
 
     use super::*;
     use crate::geometry::MeshGeometry;
-    use crate::sdf::SdfShape;
+    use crate::sdf::PADDING;
     use crate::shapes::ShapeMeshes;
     use crate::view::View;
 
@@ -389,7 +389,9 @@ mod tests {
     fn panel_view() -> View<()> {
         View::new().with(ViewNode::sdf(
             "panel",
-            SdfShape::rect(Vec2::new(40.0, 20.0)).with_corner_radius(4.0),
+            SdfMaterial2d::rect(Vec2::new(40.0, 20.0))
+                .with_corner_radius(4.0)
+                .with_padding(PADDING),
         ))
     }
 

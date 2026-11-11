@@ -20,10 +20,10 @@ use crate::blend::Presence;
 use crate::geometry::MeshGeometry;
 use crate::geometry::{Bounds, Geometry};
 use crate::rendering::Rendering;
-#[cfg(feature = "gradmesh")]
-use crate::sdf::SdfShape;
 use crate::space::DragSpace;
 use crate::spec::DragSpec;
+#[cfg(feature = "gradmesh")]
+use bevy_gradmesh::SdfMaterial2d;
 
 /// The render layer for gizmo handles. They sit on this layer so they are always picked first,
 /// even when scene geometry covers them. A camera that shows the scene should also show this
@@ -161,8 +161,8 @@ impl<S> ViewNode<S> {
     /// Creates a flat node drawn from a signed distance field, at the dimensions of the shape.
     /// It is meant for a `Camera2d`, so it is flat by default.
     #[cfg(feature = "gradmesh")]
-    pub fn sdf(id: impl Into<NodeId>, shape: SdfShape) -> Self {
-        Self::new(id, Geometry::Sdf(shape)).flat()
+    pub fn sdf(id: impl Into<NodeId>, material: SdfMaterial2d) -> Self {
+        Self::new(id, Geometry::Sdf(material)).flat()
     }
 
     /// Creates a node that draws nothing and takes no presses, to hang other nodes from and

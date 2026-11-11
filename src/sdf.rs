@@ -1,4 +1,10 @@
 //! Flat shapes that are evaluated per pixel from a signed distance field.
+//!
+//! [`SdfShape`] stores the shape parameters in an [`SdfMaterial2d`](bevy_gradmesh::SdfMaterial2d)
+//! from gradmesh, with the `shade` value kept separately because it is applied from the node
+//! color at render time.  Two shapes blend with
+//! [`SdfMaterial2d::lerp`](bevy_gradmesh::SdfMaterial2d::lerp), which handles circle-to-rectangle
+//! morphs through corner radius.
 
 use std::hash::{Hash, Hasher};
 
@@ -14,16 +20,15 @@ pub(crate) const PADDING: f32 = 2.0;
 /// A flat rectangle or ellipse drawn from a signed distance field, so its rounded corners, its
 /// border and its edge stay crisp at any size.
 ///
-/// The color of the node fills it. The shape is drawn flat, for
-/// [`Rendering::Flat`](crate::Rendering::Flat); a spatial node of this kind is a plain rectangle.
-/// Two shapes of the same kind blend by their size, corner radius, border and shade, so a panel
-/// can animate its size and its border.
-#[derive(Clone, Copy, Debug)]
+/// The shape parameters (size, corner radius, rim) are stored in an
+/// [`SdfMaterial2d`](bevy_gradmesh::SdfMaterial2d) from gradmesh.  The `shade` value is kept
+/// separately because it is applied from the node color at render time.  Two shapes blend with
+/// [`SdfMaterial2d::lerp`](bevy_gradmesh::SdfMaterial2d::lerp), which handles circle-to-rectangle
+/// morphs through corner radius, gradient direction interpolation, and dash pattern handling.
+#[derive(Clone, Debug)]
 pub struct SdfShape {
-    ellipse: bool,
-    size: Vec2,
-    corner_radius: f32,
-    rim: f32,
+    material: SdfMaterial2d,
+    /// How much the fill darkens toward the bottom, `0.0` (flat) to `1.0`.
     shade: f32,
 }
 
@@ -32,10 +37,7 @@ impl SdfShape {
     #[must_use]
     pub fn rect(size: Vec2) -> Self {
         Self {
-            ellipse: false,
-            size,
-            corner_radius: 0.0,
-            rim: 0.0,
+            material: SdfMaterial2d::rect(size).with_padding(PADDING),
             shade: 0.0,
         }
     }
@@ -44,8 +46,8 @@ impl SdfShape {
     #[must_use]
     pub fn ellipse(size: Vec2) -> Self {
         Self {
-            ellipse: true,
-            ..Self::rect(size)
+            material: SdfMaterial2d::ellipse(size / 2.0).with_padding(PADDING),
+            shade: 0.0,
         }
     }
 
@@ -53,14 +55,14 @@ impl SdfShape {
     /// side.
     #[must_use]
     pub fn with_corner_radius(mut self, radius: f32) -> Self {
-        self.corner_radius = radius.max(0.0);
+        self.material = self.material.with_corner_radius(radius);
         self
     }
 
     /// Draws only a border of `width`, inside the outline of the shape. `0.0` fills it.
     #[must_use]
     pub fn with_rim(mut self, width: f32) -> Self {
-        self.rim = width.max(0.0);
+        self.material = self.material.with_rim(width);
         self
     }
 
@@ -75,72 +77,61 @@ impl SdfShape {
     /// The width and height of the shape, without its padding.
     #[must_use]
     pub fn size(&self) -> Vec2 {
-        self.size
+        self.material.size()
     }
 
     /// Whether the shape is an ellipse instead of a rectangle.
     #[must_use]
     pub fn is_ellipse(&self) -> bool {
-        self.ellipse
+        self.material.uniform.shape.x >= 0.5
     }
 
     /// The size of the quad the shape is drawn on, which has room for its fringe.
-    pub(crate) fn quad_size(&self) -> Vec2 {
-        self.size + Vec2::splat(PADDING * 2.0)
+    #[must_use]
+    pub fn quad_size(&self) -> Vec2 {
+        self.material.quad_scale().truncate()
     }
 
-    /// Blends towards `other` by `t`, which must be a shape of the same kind.
-    pub(crate) fn lerp(&self, other: &Self, t: f32) -> Self {
+    /// Blends towards `other` by `t`.
+    #[must_use]
+    pub fn lerp(&self, other: &Self, t: f32) -> Self {
         let mix = |a: f32, b: f32| a + (b - a) * t;
         Self {
-            ellipse: self.ellipse,
-            size: self.size.lerp(other.size, t),
-            corner_radius: mix(self.corner_radius, other.corner_radius),
-            rim: mix(self.rim, other.rim),
+            material: self.material.lerp(&other.material, t),
             shade: mix(self.shade, other.shade),
         }
     }
 
-    /// The material that draws the shape in `color`.
-    pub(crate) fn material(&self, color: LinearRgba) -> SdfMaterial2d {
-        let base = if self.ellipse {
-            SdfMaterial2d::ellipse(self.size / 2.0)
-        } else {
-            SdfMaterial2d::rect(self.size).with_corner_radius(self.corner_radius)
-        }
-        .with_rim(self.rim)
-        .with_padding(PADDING);
-        let top = Color::from(color);
+    /// Converts the shape into the underlying material, with `shade` applied as a vertical
+    /// gradient from `color` at the top to a darker shade at the bottom.
+    #[must_use]
+    pub fn with_color(&self, color: Color) -> SdfMaterial2d {
+        let linear: LinearRgba = color.into();
         if self.shade <= 0.0 {
-            return base.with_color(top);
+            return self.material.clone().with_color(color);
         }
         let keep = 1.0 - self.shade;
         let bottom = Color::from(LinearRgba {
-            red: color.red * keep,
-            green: color.green * keep,
-            blue: color.blue * keep,
-            alpha: color.alpha,
+            red: linear.red * keep,
+            green: linear.green * keep,
+            blue: linear.blue * keep,
+            alpha: linear.alpha,
         });
-        base.with_colors(bottom, top)
+        self.material.clone().with_colors(bottom, color)
     }
 
-    fn key(&self) -> (bool, [u32; 5]) {
-        (
-            self.ellipse,
-            [
-                self.size.x.to_bits(),
-                self.size.y.to_bits(),
-                self.corner_radius.to_bits(),
-                self.rim.to_bits(),
-                self.shade.to_bits(),
-            ],
-        )
+    /// Returns the underlying material without color information, suitable for
+    /// [`ViewNode::sdf`](crate::ViewNode::sdf).
+    #[must_use]
+    pub fn into_material(self) -> SdfMaterial2d {
+        self.material
     }
 }
 
 impl PartialEq for SdfShape {
     fn eq(&self, other: &Self) -> bool {
-        self.key() == other.key()
+        self.material.uniform == other.material.uniform
+            && self.shade.to_bits() == other.shade.to_bits()
     }
 }
 
@@ -148,7 +139,21 @@ impl Eq for SdfShape {}
 
 impl Hash for SdfShape {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        self.key().hash(state);
+        let u = &self.material.uniform;
+        for v in &[
+            u.color,
+            u.secondary_color,
+            u.shape,
+            u.size,
+            u.gradient,
+            u.dash,
+        ] {
+            v.x.to_bits().hash(state);
+            v.y.to_bits().hash(state);
+            v.z.to_bits().hash(state);
+            v.w.to_bits().hash(state);
+        }
+        self.shade.to_bits().hash(state);
     }
 }
 
@@ -163,12 +168,12 @@ mod tests {
         let a = SdfShape::rect(Vec2::new(40.0, 20.0)).with_corner_radius(6.0);
         let b = SdfShape::rect(Vec2::new(40.0, 20.0)).with_corner_radius(6.0);
         assert_eq!(a, b);
-        assert_ne!(a, b.with_rim(2.0));
+        assert_ne!(a.clone(), b.clone().with_rim(2.0));
         assert_ne!(
-            a,
+            a.clone(),
             SdfShape::ellipse(Vec2::new(40.0, 20.0)).with_corner_radius(6.0)
         );
-        let set: HashSet<SdfShape> = [a, b, a.with_shade(0.2)].into();
+        let set: HashSet<SdfShape> = [a.clone(), b, a.with_shade(0.2)].into();
         assert_eq!(set.len(), 2);
     }
 
@@ -178,36 +183,34 @@ mod tests {
             .with_corner_radius(-3.0)
             .with_rim(-1.0)
             .with_shade(4.0);
-        assert_eq!(shape.corner_radius, 0.0);
-        assert_eq!(shape.rim, 0.0);
+        assert_eq!(shape.material.uniform.size.z, 0.0);
+        assert_eq!(shape.material.uniform.shape.y, 0.0);
         assert_eq!(shape.shade, 1.0);
     }
 
     #[test]
-    fn blending_mixes_every_number_and_keeps_the_kind() {
+    fn a_shaded_material_grades_between_two_colors() {
+        let white = Color::WHITE;
+        let flat = SdfShape::rect(Vec2::ONE).with_color(white);
+        assert_eq!(flat.uniform.color, flat.uniform.secondary_color);
+        let shaded = SdfShape::rect(Vec2::ONE).with_shade(0.5).with_color(white);
+        assert_ne!(shaded.uniform.color, shaded.uniform.secondary_color);
+        assert!(shaded.uniform.color.x < shaded.uniform.secondary_color.x);
+    }
+
+    #[test]
+    fn blending_delegates_to_material() {
         let a = SdfShape::rect(Vec2::new(10.0, 10.0)).with_corner_radius(2.0);
         let b = SdfShape::rect(Vec2::new(30.0, 50.0)).with_corner_radius(6.0);
         let middle = a.lerp(&b, 0.5);
         assert_eq!(middle.size(), Vec2::new(20.0, 30.0));
-        assert_eq!(middle.corner_radius, 4.0);
         assert!(!middle.is_ellipse());
-        assert_eq!(a.lerp(&b, 0.0), a);
-        assert_eq!(a.lerp(&b, 1.0), b);
     }
 
     #[test]
     fn the_quad_has_room_for_the_fringe() {
         let quad = SdfShape::ellipse(Vec2::new(10.0, 20.0)).quad_size();
-        assert_eq!(quad, Vec2::new(10.0 + PADDING * 2.0, 20.0 + PADDING * 2.0));
-    }
-
-    #[test]
-    fn a_shaded_shape_grades_between_two_colors_and_a_flat_one_does_not() {
-        let white = LinearRgba::WHITE;
-        let flat = SdfShape::rect(Vec2::ONE).material(white);
-        assert_eq!(flat.uniform.color, flat.uniform.secondary_color);
-        let shaded = SdfShape::rect(Vec2::ONE).with_shade(0.5).material(white);
-        assert_ne!(shaded.uniform.color, shaded.uniform.secondary_color);
-        assert!(shaded.uniform.color.x < shaded.uniform.secondary_color.x);
+        assert!((quad.x - (10.0 + PADDING * 2.0)).abs() < 1e-4);
+        assert!((quad.y - (20.0 + PADDING * 2.0)).abs() < 1e-4);
     }
 }

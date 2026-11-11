@@ -59,7 +59,10 @@ use bevy::camera::CameraProjection;
 use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
 
-use crate::{DragModel, SdfShape, ViewNode};
+use crate::{DragModel, ViewNode};
+
+#[cfg(feature = "gradmesh")]
+use bevy_gradmesh::SdfMaterial2d;
 
 /// The height of the HUD camera that [`Screen::default`] assumes, in HUD units.
 pub const DEFAULT_HEIGHT: f32 = 720.0;
@@ -110,8 +113,6 @@ const ARC_SCAN: usize = 16;
 const ARC_REFINEMENTS: usize = 10;
 /// How much of the accent of a button is mixed into white for its border.
 const EDGE_WHITENESS: f32 = 0.62;
-/// How strongly the fill of a shape darkens towards its bottom.
-const SHADE: f32 = 0.32;
 /// How big a corner of a panel is, at full size.
 const PANEL_CORNER: f32 = 12.0;
 
@@ -774,11 +775,11 @@ impl Theme {
     fn node<S>(
         &self,
         id: impl Into<String>,
-        shape: SdfShape,
+        material: SdfMaterial2d,
         color: Color,
         at: Vec3,
     ) -> ViewNode<S> {
-        self.on_hud(ViewNode::sdf(id.into(), shape).with_color(color).at(at))
+        self.on_hud(ViewNode::sdf(id.into(), material).with_color(color).at(at))
     }
 
     /// A filled disc.
@@ -789,8 +790,9 @@ impl Theme {
         color: Color,
         at: Vec3,
     ) -> ViewNode<S> {
-        let shape = SdfShape::ellipse(Vec2::splat(radius * 2.0)).with_shade(SHADE);
-        self.node(id, shape, color, at)
+        let material =
+            SdfMaterial2d::ellipse(Vec2::splat(radius)).with_padding(crate::sdf::PADDING);
+        self.node(id, material, color, at)
     }
 
     /// The border of a disc, drawn inside its outline.
@@ -802,8 +804,10 @@ impl Theme {
         color: Color,
         at: Vec3,
     ) -> ViewNode<S> {
-        let shape = SdfShape::ellipse(Vec2::splat(radius * 2.0)).with_rim(width);
-        self.node(id, shape, color, at)
+        let material = SdfMaterial2d::ellipse(Vec2::splat(radius))
+            .with_rim(width)
+            .with_padding(crate::sdf::PADDING);
+        self.node(id, material, color, at)
     }
 
     /// A filled rounded rectangle.
@@ -815,10 +819,10 @@ impl Theme {
         color: Color,
         at: Vec3,
     ) -> ViewNode<S> {
-        let shape = SdfShape::rect(size)
+        let material = SdfMaterial2d::rect(size)
             .with_corner_radius(corner)
-            .with_shade(SHADE * 0.5);
-        self.node(id, shape, color, at)
+            .with_padding(crate::sdf::PADDING);
+        self.node(id, material, color, at)
     }
 
     /// The border of a rounded rectangle, drawn inside its outline.
@@ -831,10 +835,11 @@ impl Theme {
         color: Color,
         at: Vec3,
     ) -> ViewNode<S> {
-        let shape = SdfShape::rect(size)
+        let material = SdfMaterial2d::rect(size)
             .with_corner_radius(corner)
-            .with_rim(width);
-        self.node(id, shape, color, at)
+            .with_rim(width)
+            .with_padding(crate::sdf::PADDING);
+        self.node(id, material, color, at)
     }
 
     /// The nodes of a bordered panel with its center at `center`: the plate, and its border as a

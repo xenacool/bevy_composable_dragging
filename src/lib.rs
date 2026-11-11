@@ -45,6 +45,8 @@ mod transition;
 mod view;
 
 pub use behavior::{Chaining, DragBehavior, DragContext, Frame, ViewFn};
+#[cfg(feature = "gradmesh")]
+pub use bevy_gradmesh::SdfMaterial2d;
 pub use blend::{Blend, Presence};
 pub use constraint::Constraint;
 #[cfg(feature = "pbr")]

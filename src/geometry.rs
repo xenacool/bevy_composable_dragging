@@ -12,7 +12,7 @@ use bevy::prelude::{Assets, Handle, Mesh};
 use bevy_gradmesh::Shape;
 
 #[cfg(feature = "gradmesh")]
-use crate::sdf::SdfShape;
+use bevy_gradmesh::SdfMaterial2d;
 
 /// The thinnest half extent of [`Geometry::bounds`], so flat shapes can still be hit by a ray.
 const MIN_HALF_THICKNESS: f32 = 0.02;
@@ -141,7 +141,7 @@ fn measure_mesh(mesh: &Mesh) -> (Vec3, Vec3) {
 /// sized by the node's scale. `Grad` shapes are drawn at their own dimensions in
 /// world units; prefer animating the node's scale to animating the shape, since every distinct
 /// morphed shape is a distinct mesh.
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug)]
 #[non_exhaustive]
 pub enum Geometry {
     /// A unit square in the XY plane.
@@ -153,9 +153,10 @@ pub enum Geometry {
     Grad(Shape),
     /// A flat rectangle or ellipse with rounded corners and a border, drawn per pixel from a
     /// signed distance field. It is drawn at its own dimensions in world units, and two of the
-    /// same kind blend by their numbers.
+    /// same kind blend with [`SdfMaterial2d::lerp`](bevy_gradmesh::SdfMaterial2d::lerp), which
+    /// handles circle-to-rectangle morphs through corner radius.
     #[cfg(feature = "gradmesh")]
-    Sdf(SdfShape),
+    Sdf(SdfMaterial2d),
     /// A mesh of your own, drawn at its own dimensions. With the `gradmesh` feature it is drawn
     /// with the gradient material, so its style applies; it never morphs, and a blend between
     /// two meshes takes the nearer one. It needs the `pbr` feature.
@@ -171,9 +172,9 @@ impl From<Shape> for Geometry {
 }
 
 #[cfg(feature = "gradmesh")]
-impl From<SdfShape> for Geometry {
-    fn from(shape: SdfShape) -> Self {
-        Self::Sdf(shape)
+impl From<SdfMaterial2d> for Geometry {
+    fn from(material: SdfMaterial2d) -> Self {
+        Self::Sdf(material)
     }
 }
 
@@ -188,8 +189,10 @@ impl Geometry {
     /// Blends this geometry towards `other` by `t`.
     ///
     /// Two `Grad` shapes morph with `Shape::lerp`, with `t` quantized to 1/32 steps, and polygons
-    /// with different point counts are resampled by gradmesh. Everything else, including shapes
-    /// of different kinds, comes from the nearer state.
+    /// with different point counts are resampled by gradmesh. Two SDF shapes blend with
+    /// [`SdfMaterial2d::lerp`](bevy_gradmesh::SdfMaterial2d::lerp), which handles circle-to-rectangle
+    /// morphs through corner radius. Everything else, including shapes of different kinds, comes
+    /// from the nearer state.
     #[must_use]
     pub fn lerp(&self, other: &Self, t: f32) -> Self {
         match (self, other) {
@@ -199,7 +202,7 @@ impl Geometry {
                 Self::Grad(a.lerp(b, steps))
             }
             #[cfg(feature = "gradmesh")]
-            (Self::Sdf(a), Self::Sdf(b)) if a.is_ellipse() == b.is_ellipse() => {
+            (Self::Sdf(a), Self::Sdf(b)) => {
                 let steps = (t.clamp(0.0, 1.0) * MORPH_STEPS).round() / MORPH_STEPS;
                 Self::Sdf(a.lerp(b, steps))
             }
@@ -223,11 +226,10 @@ impl Geometry {
                 shape.is_round(),
             ),
             #[cfg(feature = "gradmesh")]
-            Self::Sdf(shape) => Bounds::new(
-                Vec3::ZERO,
-                (shape.size() / 2.0).extend(0.0),
-                shape.is_ellipse(),
-            ),
+            Self::Sdf(material) => {
+                let is_ellipse = material.uniform.shape.x >= 0.5;
+                Bounds::new(Vec3::ZERO, (material.size() / 2.0).extend(0.0), is_ellipse)
+            }
             #[cfg(feature = "pbr")]
             Self::Mesh(mesh) => Bounds::new(mesh.center, mesh.half_extents, false),
         }
@@ -237,6 +239,54 @@ impl Geometry {
     #[cfg(feature = "gradmesh")]
     pub(crate) fn is_gradient(&self) -> bool {
         matches!(self, Self::Grad(_) | Self::Mesh(_))
+    }
+}
+
+impl PartialEq for Geometry {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Rectangle, Self::Rectangle) => true,
+            (Self::Circle, Self::Circle) => true,
+            #[cfg(feature = "gradmesh")]
+            (Self::Grad(a), Self::Grad(b)) => a == b,
+            #[cfg(feature = "gradmesh")]
+            (Self::Sdf(a), Self::Sdf(b)) => a.uniform == b.uniform,
+            #[cfg(feature = "pbr")]
+            (Self::Mesh(a), Self::Mesh(b)) => a.handle.id() == b.handle.id(),
+            _ => false,
+        }
+    }
+}
+
+impl Eq for Geometry {}
+
+impl std::hash::Hash for Geometry {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        std::mem::discriminant(self).hash(state);
+        match self {
+            Self::Rectangle | Self::Circle => {}
+            #[cfg(feature = "gradmesh")]
+            Self::Grad(shape) => shape.hash(state),
+            #[cfg(feature = "gradmesh")]
+            Self::Sdf(material) => {
+                let u = &material.uniform;
+                for v in &[
+                    u.color,
+                    u.secondary_color,
+                    u.shape,
+                    u.size,
+                    u.gradient,
+                    u.dash,
+                ] {
+                    v.x.to_bits().hash(state);
+                    v.y.to_bits().hash(state);
+                    v.z.to_bits().hash(state);
+                    v.w.to_bits().hash(state);
+                }
+            }
+            #[cfg(feature = "pbr")]
+            Self::Mesh(mesh) => mesh.handle.id().hash(state),
+        }
     }
 }
 
