@@ -144,7 +144,7 @@ The port aims to be faithful to the operators and behavior of Dragology. These d
 - **`drop_target` bounds.** The default measures the target in the state the drag started from, so it keeps working when a drop removes the target. Dragology measures it in the target state; `drop_target_with_bounds` does that.
 - **`with_overlay`.** The overlay is a list of ordinary non-draggable nodes, in the `overlay-` namespace, instead of SVG. There is no tree view or overlay visualization of operators.
 - **`with_chaining`** and the chaining of `with_snap_radius_options` need a state that can be compared with `PartialEq`, because Dragology compares drop and start state with deep equality.
-- **`substate`** previews of the sub-spec are not draggable, because a drag factory of the part cannot be turned into one of the whole.
+- **`substate`** previews keep all nodes draggable. The inner spec focuses on one node (a zipper over the view), merging its transform into the full view while preserving every sibling's drag factory.
 - **`tactile_tessellations`.** A new tile starts at its palette item instead of the canvas origin, the dragged tile is raised by the spec instead of through a z-index from the dragged id, the center of the tile follows the pointer by resetting the grab offset (Dragology's `withInitContext({ anchorPos })`), and the outline of a polygon is a larger polygon behind it. Snap candidates, the overlap test, rotation along the shortest arc, `when_far` and the trash bin behave as in the original.
 - **3D drag spaces and gizmos are additions.** Dragology drags in the plane of the page. Here a drag resolves the pointer in a `DragSpace` (plane, axis or camera-facing plane), operators work on world positions and `Transform`s, nodes are picked by oriented bounds, and the value operators and `Gizmo` build on that. `Geometry::Grad` takes any `bevy_gradmesh` shape where Dragology draws SVG elements; text, filters and drop shadows have no counterpart.
 - **Blending of different point counts.** Dragology morphs paths with different segment counts; `bevy_gradmesh` 0.3 resamples polygons of different lengths in `Shape::lerp`, so tiles that change their number of sides morph here too. Shapes of different kinds still come from the nearer state.
@@ -161,10 +161,14 @@ The test cases of Dragology's `closest.test.tsx`, `userOps.test.tsx`, `math/dela
 | `reorder_list` | `closest` + floating |
 | `ring_of_beads` | `closest` on a ring |
 | `slider` | `vary` with a range constraint |
+| `equal_constraint` | `vary` with `equal` constraint linking two parameters |
+| `stickiness` | `closest` with stickiness bias toward the current branch |
 | `clock` | `vary` one angle |
-| `scheduler` | `closest` + `vary` |
-| `lists_in_lists` | rows nested to any depth, `when_far` snap-or-free, `with_overlay` insertion marker |
-| `tessellations` | toolbar and trash bin |
+| `constellation` | `substate`: a star focuses on its own position, kept in the sky, while its lines stretch and every other star stays draggable |
+| `dag` | `substate`: a node focuses on its position and an arrowhead on one end of one edge, which snaps to nodes that keep the graph acyclic, floats when far and deletes the edge if dropped loose |
+| `scheduler` | `substate`: one meeting's lane and time, siblings stay draggable |
+| `lists_in_lists` | `substate`: rows nested to any depth, `when_far` snap-or-free, `with_overlay` insertion marker |
+| `tessellations` | `substate`: one tile's cell, toolbar and trash bin |
 | `gradient_hanoi_3d` | `shapes-3d` |
 | `gradient_kanban_2d` | `shapes-2d` |
 | `chain_of_cells` | `with_chaining`, overlay underline, drop transition |

@@ -16,9 +16,9 @@ use bevy::scene::EntityWorldMutSceneExt;
 use bevy_gradmesh::{Shape, ShapeDetail, Style};
 
 use crate::blend::Presence;
+use crate::geometry::Geometry;
 #[cfg(feature = "pbr")]
 use crate::geometry::MeshGeometry;
-use crate::geometry::{Bounds, Geometry};
 use crate::rendering::Rendering;
 use crate::space::DragSpace;
 use crate::spec::DragSpec;
@@ -327,7 +327,8 @@ impl<S> ViewNode<S> {
     ///
     /// A node that first appears while one view blends into another takes its scene from the
     /// view that the blend settles on, and a node that is only in the view the blend leaves has
-    /// none.
+    /// none. A node that first appears in a preview that the settled view does not have gets its
+    /// scene when the settled view has the node.
     #[must_use]
     pub fn with_scene<B: Scene + Send + Sync + 'static>(
         mut self,
@@ -610,7 +611,7 @@ impl<S> View<S> {
         let (Some(node), Some(world)) = (self.get(id), self.world_transform(id)) else {
             return false;
         };
-        intersect(ray, &world, node.geometry.bounds()).is_some()
+        intersect(ray, &world, &node.geometry).is_some()
     }
 
     /// The node the ray hits first, testing the oriented bounds of every node: an ellipsoid for
@@ -639,7 +640,7 @@ impl<S> View<S> {
             let Some(world) = worlds.get(node.id.as_ref()) else {
                 continue;
             };
-            let Some(distance) = intersect(ray, world, node.geometry.bounds()) else {
+            let Some(distance) = intersect(ray, world, &node.geometry) else {
                 continue;
             };
             // Gizmo layer always wins over a non-gizmo hit at the same distance.
@@ -737,7 +738,8 @@ pub struct Hit {
 
 /// The distance along `ray` at which it first enters the oriented `bounds` of a node with the
 /// given world transform (zero when it starts inside).
-fn intersect(ray: Ray3d, world: &Transform, bounds: Bounds) -> Option<f32> {
+fn intersect(ray: Ray3d, world: &Transform, geometry: &Geometry) -> Option<f32> {
+    let bounds = geometry.bounds();
     let affine = world.compute_affine();
     if affine.matrix3.determinant().abs() < f32::EPSILON {
         return None;
@@ -780,7 +782,20 @@ fn intersect(ray: Ray3d, world: &Transform, bounds: Bounds) -> Option<f32> {
         enter = enter.max(t1.min(t2));
         leave = leave.min(t1.max(t2));
     }
-    (enter <= leave && leave >= 0.0).then_some(enter.max(0.0))
+    let distance = (enter <= leave && leave >= 0.0).then_some(enter.max(0.0))?;
+    #[cfg(feature = "gradmesh")]
+    if geometry.is_outline_picked() {
+        // A drawn shape is only hit where it is drawn, as a press on a shape of an SVG is: the
+        // ray is met with the plane of the shape, and the point must be on the shape.
+        let local = origin + bounds.center;
+        if direction.z.abs() < f32::EPSILON {
+            return None;
+        }
+        let at = -local.z / direction.z;
+        let point = local + direction * at;
+        return (at >= 0.0 && geometry.outline_contains(point.truncate())).then_some(at);
+    }
+    Some(distance)
 }
 
 fn resolve_world<'a, S>(
@@ -931,6 +946,32 @@ mod tests {
         assert_eq!(view.hit_test(down_at(11.5, 0.8)).unwrap().id, "terrain");
         assert!(view.hit_test(down_at(11.5, 1.2)).is_none());
         assert!(view.hit_test(down_at(12.5, 0.0)).is_none());
+    }
+
+    #[cfg(feature = "gradmesh")]
+    #[test]
+    fn a_concave_shape_is_only_hit_where_it_is_drawn() {
+        let corner = Shape::arbitrary_polygon(
+            vec![
+                Vec2::new(-1.0, -1.0),
+                Vec2::new(1.0, -1.0),
+                Vec2::new(1.0, 0.0),
+                Vec2::new(0.0, 0.0),
+                Vec2::new(0.0, 1.0),
+                Vec2::new(-1.0, 1.0),
+            ],
+            bevy_gradmesh::ShapeDetail::Low,
+        );
+        let view: TestView = View::new()
+            .with(ViewNode::grad("corner", corner).at(Vec3::X * 10.0))
+            .with(ViewNode::rectangle("behind", Vec2::splat(4.0)).at(Vec3::new(10.0, 0.0, -1.0)));
+        assert_eq!(view.hit_test(down_at(9.5, 0.5)).unwrap().id, "corner");
+        assert_eq!(view.hit_test(down_at(10.5, -0.5)).unwrap().id, "corner");
+        assert_eq!(
+            view.hit_test(down_at(10.5, 0.5)).unwrap().id,
+            "behind",
+            "the notch lets the press through to what is behind"
+        );
     }
 
     #[test]

@@ -1,6 +1,6 @@
 [package]
 name = "bevy_composable_dragging"
-version = "0.3.6" # Must always aligned with bevy_gradmesh. Don't forget to update README.md and book/
+version = "0.3.7" # Must always aligned with bevy_gradmesh. Don't forget to update README.md and book/
 authors = ["Jessica Collins (https://github.com/xenacool)"]
 edition = "2024"
 rust-version = "1.87"
@@ -45,7 +45,7 @@ default = []
 # PBR materials and mesh picking backend for 3D scenes.
 pbr = ["bevy/bevy_pbr", "bevy/mesh_picking"]
 # Any `bevy_gradmesh` shape as node geometry (`Geometry::Grad`).
-gradmesh = ["dep:bevy_gradmesh", "pbr"]
+gradmesh = ["dep:bevy_gradmesh", "pbr", "bevy/bevy_text"]
 # Flat gradient shapes from `bevy_gradmesh` for 2D scenes (`Rendering::Flat` with a `Camera2d`).
 shapes-2d = ["gradmesh"]
 # Gradient shapes from `bevy_gradmesh` for 3D scenes.
@@ -54,10 +54,13 @@ shapes-3d = ["gradmesh"]
 fuzz = []
 # Editable heightmap terrain for the kart racer editor and similar examples.
 basic-terrain = []
+# A graph in which equal nodes are one node, to describe documents, materials, terrain and
+# particles that share what is equal and keep sharing it when they are rewritten.
+shared-graph = []
 
 [dependencies]
 bevy = { version = "0.20", default-features = false, features = ["bevy_color", "bevy_scene"] }
-bevy_gradmesh = { version = "0.3.6", optional = true }
+bevy_gradmesh = { version = "0.3.7", optional = true }
 
 # Examples need windowing, tonemapping LUT textures and PNG support which the library does not require.
 [dev-dependencies]
@@ -66,6 +69,11 @@ bevy = { version = "0.20", features = ["bevy_pbr", "mesh_picking", "tonemapping_
 # the headless tests need no GPU.
 avian2d = { version = "0.8", default-features = false, features = ["2d", "parry-f32", "parallel"] }
 avian3d = { version = "0.8", default-features = false, features = ["3d", "parry-f32", "collider-from-mesh", "parallel"] }
+# Reads the particle schema that the shared graph tests describe documents with.
+ron = "0.12"
+serde = { version = "1", features = ["derive"] }
+# Property-based testing for drag interaction correctness.
+proptest = "1"
 
 [[example]]
 name = "toggle"
@@ -93,6 +101,16 @@ path = "examples/slider.rs"
 required-features = ["pbr"]
 
 [[example]]
+name = "stickiness"
+path = "examples/stickiness.rs"
+required-features = ["pbr"]
+
+[[example]]
+name = "equal_constraint"
+path = "examples/equal_constraint.rs"
+required-features = ["pbr"]
+
+[[example]]
 name = "clock"
 path = "examples/clock.rs"
 required-features = ["pbr"]
@@ -112,6 +130,18 @@ test = true
 name = "tessellations"
 path = "examples/tessellations.rs"
 required-features = ["pbr"]
+
+[[example]]
+name = "constellation"
+path = "examples/constellation.rs"
+required-features = ["gradmesh"]
+test = true
+
+[[example]]
+name = "dag"
+path = "examples/dag.rs"
+required-features = ["gradmesh"]
+test = true
 
 [[example]]
 name = "chain_of_cells"
@@ -166,6 +196,17 @@ name = "physics_lab"
 path = "examples/physics_lab/main.rs"
 required-features = ["shapes-3d"]
 test = true
+
+[[example]]
+name = "graspable_math"
+path = "examples/graspable_math.rs"
+required-features = ["gradmesh", "shared-graph"]
+test = true
+
+[[test]]
+name = "shared_graph"
+path = "tests/shared_graph.rs"
+required-features = ["shared-graph", "gradmesh"]
 
 [[test]]
 name = "performance"

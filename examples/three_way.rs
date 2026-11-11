@@ -75,7 +75,7 @@ pub fn run(app: &mut App) {
             Vec2::new(-0.9, 0.0),
         ))
         .add_plugins(
-            AutoScreenshotPlugin::new("screenshot_three_way.webp")
+            AutoScreenshotPlugin::new("screenshot_three_way.gif")
                 .with_title("three_way")
                 .with_description("between: three targets")
                 .animation(600),
@@ -94,7 +94,7 @@ fn main() {
             Vec2::new(-0.9, 0.0),
         ))
         .add_plugins(
-            AutoScreenshotPlugin::new("screenshot_three_way.webp")
+            AutoScreenshotPlugin::new("screenshot_three_way.gif")
                 .with_title("three_way")
                 .with_description("between: three targets")
                 .animation(600),

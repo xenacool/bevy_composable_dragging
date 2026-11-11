@@ -58,7 +58,7 @@ pub fn run(app: &mut App) {
             knob_position(0.7) + Vec2::new(0.0, 0.6),
         ))
         .add_plugins(
-            AutoScreenshotPlugin::new("screenshot_slider.webp")
+            AutoScreenshotPlugin::new("screenshot_slider.gif")
                 .with_title("slider")
                 .with_description("vary + in_range")
                 .animation(600),
@@ -77,7 +77,7 @@ fn main() {
             knob_position(0.7) + Vec2::new(0.0, 0.6),
         ))
         .add_plugins(
-            AutoScreenshotPlugin::new("screenshot_slider.webp")
+            AutoScreenshotPlugin::new("screenshot_slider.gif")
                 .with_title("slider")
                 .with_description("vary + in_range")
                 .animation(600),

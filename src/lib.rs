@@ -12,6 +12,8 @@ mod easing;
 mod geometry;
 #[cfg(feature = "gradmesh")]
 pub mod gizmo;
+#[cfg(feature = "shared-graph")]
+pub mod graph;
 #[cfg(feature = "gradmesh")]
 pub mod handles;
 #[cfg(feature = "basic-terrain")]

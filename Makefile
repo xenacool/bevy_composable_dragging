@@ -1,7 +1,7 @@
-EXAMPLES = hello toggle three_way reorder_list ring_of_beads slider clock scheduler lists_in_lists tessellations chain_of_cells blend_square tactile_tessellations gizmo_3d gradient_hanoi_3d gradient_kanban_2d cozy_castle kart_racer_editor physics_lab
+EXAMPLES = hello toggle three_way reorder_list ring_of_beads slider clock scheduler lists_in_lists tessellations chain_of_cells blend_square tactile_tessellations gizmo_3d gradient_hanoi_3d gradient_kanban_2d constellation dag cozy_castle kart_racer_editor physics_lab
 
-# Examples that produce animated WebP (all except hello, which is a still WebP)
-ANIMATIONS = toggle three_way reorder_list ring_of_beads slider clock scheduler lists_in_lists tessellations chain_of_cells blend_square tactile_tessellations gizmo_3d gradient_hanoi_3d gradient_kanban_2d cozy_castle kart_racer_editor physics_lab
+# Examples that produce animated GIF (all except hello, which is a still GIF)
+ANIMATIONS = toggle three_way reorder_list ring_of_beads slider clock scheduler lists_in_lists tessellations chain_of_cells blend_square tactile_tessellations gizmo_3d gradient_hanoi_3d gradient_kanban_2d constellation dag cozy_castle kart_racer_editor physics_lab
 
 .PHONY: $(EXAMPLES) all-examples screenshots clean cozy_castle_tour kart_racer_editor_tour
 
@@ -50,6 +50,12 @@ tactile_tessellations:
 gizmo_3d:
 	cargo run --example gizmo_3d --features shapes-3d
 
+constellation:
+	cargo run --example constellation --features gradmesh
+
+dag:
+	cargo run --example dag --features gradmesh
+
 gradient_hanoi_3d:
 	cargo run --example gradient_hanoi_3d --features shapes-3d
 
@@ -65,7 +71,7 @@ kart_racer_editor:
 physics_lab:
 	cargo run --example physics_lab --features shapes-3d
 
-ANIMATIONS_WEBP = $(patsubst %,screenshot_%.webp,$(ANIMATIONS))
+ANIMATIONS_GIF = $(patsubst %,screenshot_%.gif,$(ANIMATIONS))
 
 # Detect whether we need a virtual display for screenshot capture
 XVFB_RUN := $(shell if [ -z "$$DISPLAY" ] && [ -z "$$WAYLAND_DISPLAY" ] && [ -z "$$WAYLAND_SOCKET" ] && command -v xvfb-run >/dev/null 2>&1; then echo "xvfb-run --auto-servernum --server-args='-screen 0 1280x720x24'"; fi)
@@ -81,16 +87,16 @@ define capture_screenshot
 	@echo "=== Capturing $(1) screenshot ==="
 	$(XVFB_RUN) env DSD_SCREENSHOT=1 timeout 120 cargo run --example $(1) --features $(2) 2>&1 || true
 	@if [ -f $(OUT_DIR)/screenshot_$(1).png ]; then \
-		ffmpeg -y -i $(OUT_DIR)/screenshot_$(1).png -vcodec libwebp -quality 75 \
-			$(OUT_DIR)/screenshot_$(1).webp 2>/dev/null && \
-		echo "Saved $(OUT_DIR)/screenshot_$(1).webp" || \
-		echo "Warning: ffmpeg WebP encoding failed for $(1)"; \
+		ffmpeg -y -i $(OUT_DIR)/screenshot_$(1).png -vcodec gif \
+			$(OUT_DIR)/screenshot_$(1).gif 2>/dev/null && \
+		echo "Saved $(OUT_DIR)/screenshot_$(1).gif" || \
+		echo "Warning: ffmpeg GIF encoding failed for $(1)"; \
 		rm -f $(OUT_DIR)/screenshot_$(1).png; \
 	elif [ -f screenshot_$(1).png ]; then \
-		ffmpeg -y -i screenshot_$(1).png -vcodec libwebp -quality 75 \
-			$(OUT_DIR)/screenshot_$(1).webp 2>/dev/null && \
-		echo "Saved $(OUT_DIR)/screenshot_$(1).webp" || \
-		echo "Warning: ffmpeg WebP encoding failed for $(1)"; \
+		ffmpeg -y -i screenshot_$(1).png -vcodec gif \
+			$(OUT_DIR)/screenshot_$(1).gif 2>/dev/null && \
+		echo "Saved $(OUT_DIR)/screenshot_$(1).gif" || \
+		echo "Warning: ffmpeg GIF encoding failed for $(1)"; \
 		rm -f screenshot_$(1).png; \
 	fi
 endef
@@ -103,12 +109,12 @@ define capture_animation
 	@mkdir -p frames
 	$(XVFB_RUN) env DSD_SCREENSHOT=1 timeout 1800 cargo run --example $(1) --features $(2) 2>&1 || true
 	@if ls frames/screenshot_$(1)_frame_*.png 1>/dev/null 2>&1; then \
-		echo "Encoding frames to WebP..."; \
+		echo "Encoding frames to GIF..."; \
 		ffmpeg -y -framerate 30 -i frames/screenshot_$(1)_frame_%04d.png \
-			-vcodec libwebp -quality 75 -loop 0 \
-			$(OUT_DIR)/screenshot_$(1).webp 2>/dev/null && \
-		echo "Saved $(OUT_DIR)/screenshot_$(1).webp" || \
-		echo "Warning: ffmpeg WebP encoding failed for $(1)"; \
+			-vcodec gif -loop 0 \
+			$(OUT_DIR)/screenshot_$(1).gif 2>/dev/null && \
+		echo "Saved $(OUT_DIR)/screenshot_$(1).gif" || \
+		echo "Warning: ffmpeg GIF encoding failed for $(1)"; \
 		rm -f frames/screenshot_$(1)_frame_*.png; \
 	else \
 		echo "Warning: no frames found for $(1)"; \
@@ -122,12 +128,12 @@ define capture_tour
 	@mkdir -p frames
 	$(XVFB_RUN) env DSD_SCREENSHOT=1 timeout 1800 cargo run --release --example $(1) --features $(3) 2>&1 || true
 	@if ls frames/screenshot_$(2)_frame_*.png 1>/dev/null 2>&1; then \
-		echo "Encoding frames to WebP..."; \
+		echo "Encoding frames to GIF..."; \
 		ffmpeg -y -framerate 30 -i frames/screenshot_$(2)_frame_%04d.png \
-			-vf "fps=20,scale=960:-1:flags=lanczos" -vcodec libwebp -quality 70 -loop 0 \
-			$(OUT_DIR)/screenshot_$(2).webp 2>/dev/null && \
-		echo "Saved $(OUT_DIR)/screenshot_$(2).webp" || \
-		echo "Warning: ffmpeg WebP encoding failed for $(2)"; \
+			-vf "fps=20,scale=960:-1:flags=lanczos" -vcodec gif -loop 0 \
+			$(OUT_DIR)/screenshot_$(2).gif 2>/dev/null && \
+		echo "Saved $(OUT_DIR)/screenshot_$(2).gif" || \
+		echo "Warning: ffmpeg GIF encoding failed for $(2)"; \
 		rm -f frames/screenshot_$(2)_frame_*.png; \
 	else \
 		echo "Warning: no frames found for $(2)"; \
@@ -178,6 +184,10 @@ screenshots:
 	@echo ""
 	$(call capture_animation,gradient_kanban_2d,shapes-2d)
 	@echo ""
+	$(call capture_animation,constellation,gradmesh)
+	@echo ""
+	$(call capture_animation,dag,gradmesh)
+	@echo ""
 	@echo "!!! WARNING: cozy_castle and kart_racer_editor tours are NOT regenerated here."
 	@echo "!!! They take a long time and produce large files (~10 MB combined)."
 	@echo "!!! Run 'make cozy_castle_tour' or 'make kart_racer_editor_tour' individually when needed."
@@ -196,17 +206,17 @@ VERSION := $(shell grep '^version =' Cargo.toml | head -1 | sed 's/version = "\(
 
 release-zip: screenshots
 	@echo "=== Validating screenshots ==="
-	@for f in $(OUT_DIR)/*.webp; do \
+	@for f in $(OUT_DIR)/*.gif; do \
 		if [ -f "$$f" ]; then \
-			if ! file "$$f" | grep -q "Web/P"; then \
-				echo "ERROR: $$f is not a valid WebP"; exit 1; \
+			if ! file "$$f" | grep -q "GIF"; then \
+				echo "ERROR: $$f is not a valid GIF"; exit 1; \
 			fi; \
 		fi; \
 	done
-	@count=$$(ls $(OUT_DIR)/*.webp 2>/dev/null | wc -l); \
+	@count=$$(ls $(OUT_DIR)/*.gif 2>/dev/null | wc -l); \
 	echo "Found $$count screenshot files"
-	@cd $(OUT_DIR) && zip -r ../screenshots-v$(VERSION).zip *.webp 2>/dev/null || \
-		(cd $(OUT_DIR) && zip ../screenshots-v$(VERSION).zip *.webp)
+	@cd $(OUT_DIR) && zip -r ../screenshots-v$(VERSION).zip *.gif 2>/dev/null || \
+		(cd $(OUT_DIR) && zip ../screenshots-v$(VERSION).zip *.gif)
 	@echo "Created screenshots-v$(VERSION).zip ($$(du -h screenshots-v$(VERSION).zip | cut -f1))"
 
 release: release-zip

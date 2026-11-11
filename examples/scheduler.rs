@@ -6,7 +6,7 @@
 
 use bevy::prelude::*;
 use bevy_composable_dragging::constraint::{Constraint, and, at_least, at_most, in_order};
-use bevy_composable_dragging::ops::{closest, vary_constrained};
+use bevy_composable_dragging::ops::{closest, substate, vary_constrained, Lens};
 use bevy_composable_dragging::{DragSpec, DraggablePlugin, View, ViewNode, param};
 
 mod common;
@@ -39,33 +39,50 @@ fn lane_y(lane: usize) -> f32 {
     ((LANES - 1) as f32 / 2.0 - lane as f32) * LANE_SPACING
 }
 
+/// The isolated state of one meeting.
+#[derive(Clone, Copy, Debug)]
+struct MeetingState {
+    lane: usize,
+    start: f32,
+    end: f32,
+}
+
 /// Slides the meeting along its lane, keeping its length and the day bounds.
-fn slide(schedule: &Schedule, index: usize, lane: usize) -> DragSpec<Schedule> {
-    let mut moved = schedule.clone();
-    moved.meetings[index].lane = lane;
-    let length = schedule.meetings[index].end - schedule.meetings[index].start;
-    let keep_length = Constraint::new(move |state: &Schedule| {
-        let meeting = &state.meetings[index];
-        (meeting.end - meeting.start - length).abs()
+fn slide(schedule: &Schedule, index: usize, lane: usize) -> DragSpec<MeetingState> {
+    let meeting = schedule.meetings[index].clone();
+    let moved = MeetingState {
+        lane,
+        start: meeting.start,
+        end: meeting.end,
+    };
+    let length = meeting.end - meeting.start;
+    let keep_length = Constraint::new(move |state: &MeetingState| {
+        (state.end - state.start - length).abs()
     });
     let within_day = and([
-        at_least(param!(Schedule, meetings[index].start), 0.0),
-        at_most(param!(Schedule, meetings[index].end), DAY),
+        at_least(param!(MeetingState, start), 0.0),
+        at_most(param!(MeetingState, end), DAY),
     ]);
     vary_constrained(
         moved,
         [
-            param!(Schedule, meetings[index].start),
-            param!(Schedule, meetings[index].end),
+            param!(MeetingState, start),
+            param!(MeetingState, end),
         ],
         and([keep_length, within_day]),
     )
 }
 
 /// Resizes one edge of the meeting, keeping the start before the end and both inside the day.
-fn resize(schedule: &Schedule, index: usize, edge: Edge) -> DragSpec<Schedule> {
-    let start = param!(Schedule, meetings[index].start);
-    let end = param!(Schedule, meetings[index].end);
+fn resize(schedule: &Schedule, index: usize, edge: Edge) -> DragSpec<MeetingState> {
+    let meeting = schedule.meetings[index].clone();
+    let state = MeetingState {
+        lane: meeting.lane,
+        start: meeting.start,
+        end: meeting.end,
+    };
+    let start = param!(MeetingState, start);
+    let end = param!(MeetingState, end);
     let constraint = and([
         in_order([start.clone(), end.clone()]),
         at_least(start.clone(), 0.0),
@@ -75,7 +92,7 @@ fn resize(schedule: &Schedule, index: usize, edge: Edge) -> DragSpec<Schedule> {
         Edge::Start => start,
         Edge::End => end,
     };
-    vary_constrained(schedule.clone(), [moving], constraint)
+    vary_constrained(state, [moving], constraint)
 }
 
 #[derive(Clone, Copy)]
@@ -104,19 +121,52 @@ fn view(schedule: &Schedule) -> View<Schedule> {
             hour_x(f32::midpoint(meeting.start, meeting.end)),
             lane_y(meeting.lane),
         );
+        let lens = Lens::new(
+            move |s: &Schedule| MeetingState {
+                lane: s.meetings[index].lane,
+                start: s.meetings[index].start,
+                end: s.meetings[index].end,
+            },
+            move |s: &Schedule, ms| {
+                let mut s = s.clone();
+                s.meetings[index].lane = ms.lane;
+                s.meetings[index].start = ms.start;
+                s.meetings[index].end = ms.end;
+                s
+            },
+        );
         let body = schedule.clone();
         view.push(
             ViewNode::rectangle(format!("meeting-{index}"), Vec2::new(width, 0.9))
                 .at_xy(center)
                 .with_z(0.1)
                 .with_color(color)
-                .draggable(move || closest((0..LANES).map(|lane| slide(&body, index, lane)))),
+                .draggable(move || {
+                    substate(
+                        lens.clone(),
+                        closest((0..LANES).map(|lane| slide(&body, index, lane))),
+                    )
+                }),
         );
         for (name, edge, hour) in [
             ("start", Edge::Start, meeting.start),
             ("end", Edge::End, meeting.end),
         ] {
             let handle = schedule.clone();
+            let handle_lens = Lens::new(
+                move |s: &Schedule| MeetingState {
+                    lane: s.meetings[index].lane,
+                    start: s.meetings[index].start,
+                    end: s.meetings[index].end,
+                },
+                move |s: &Schedule, ms| {
+                    let mut s = s.clone();
+                    s.meetings[index].lane = ms.lane;
+                    s.meetings[index].start = ms.start;
+                    s.meetings[index].end = ms.end;
+                    s
+                },
+            );
             view.push(
                 ViewNode::rectangle(
                     format!("meeting-{index}-{name}"),
@@ -125,7 +175,7 @@ fn view(schedule: &Schedule) -> View<Schedule> {
                 .at_xy(Vec2::new(hour_x(hour), lane_y(meeting.lane)))
                 .with_z(0.2)
                 .with_color(Color::srgb(0.95, 0.95, 0.98))
-                .draggable(move || resize(&handle, index, edge)),
+                .draggable(move || substate(handle_lens.clone(), resize(&handle, index, edge))),
             );
         }
     }
@@ -170,7 +220,7 @@ pub fn run(app: &mut App) {
             Vec2::new(hour_x(4.3), lane_y(2) + 0.15),
         ))
         .add_plugins(
-            AutoScreenshotPlugin::new("screenshot_scheduler.webp")
+            AutoScreenshotPlugin::new("screenshot_scheduler.gif")
                 .with_title("scheduler")
                 .with_description("closest + vary")
                 .animation(600),
@@ -218,7 +268,7 @@ fn main() {
             Vec2::new(hour_x(4.3), lane_y(2) + 0.15),
         ))
         .add_plugins(
-            AutoScreenshotPlugin::new("screenshot_scheduler.webp")
+            AutoScreenshotPlugin::new("screenshot_scheduler.gif")
                 .with_title("scheduler")
                 .with_description("closest + vary")
                 .animation(600),

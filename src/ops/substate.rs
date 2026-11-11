@@ -59,10 +59,8 @@ impl<S, T> Lens<S, T> {
 /// spec sees and changes only the part; the rest of the state stays as it was when the drag
 /// started.
 ///
-/// Because a spec for the part cannot drive nodes of the whole, the preview of a substate drag
-/// shows the whole scene with non-draggable nodes (see [`View::rebind`](crate::View::rebind)).
-/// That matters only while the drag is running, since the dropped state is rendered by the
-/// view function as usual.
+/// The preview shows the whole scene with all nodes retaining their drag behavior. The dragged
+/// node moves according to the inner spec, while sibling nodes remain draggable.
 ///
 /// ```
 /// use bevy_composable_dragging::ops::{Lens, closest_states, substate};
@@ -90,36 +88,47 @@ where
 {
     DragSpec::new(move |context: &DragContext<S>| {
         let whole = context.start_state().clone();
+        let whole_view_fn = context.view_fn();
+        let dragged = NodeId::from(context.dragged().to_owned());
         let part_view = {
             let view_fn = context.view_fn();
             let lens = lens.clone();
             let whole = whole.clone();
             ViewFn::new(move |part: &T| view_fn.call(&lens.set(&whole, part.clone())).rebind())
         };
-        let part_context = DragContext::with_view_fn(
-            part_view,
-            NodeId::from(context.dragged().to_owned()),
-            lens.get(&whole),
-        )
-        .with_grab_offset(context.grab_offset())
-        .with_space(*context.space());
+        let part_context = DragContext::with_view_fn(part_view, dragged.clone(), lens.get(&whole))
+            .with_grab_offset(context.grab_offset())
+            .with_space(*context.space());
         let mut inner = spec.compile(&part_context);
         let lens = lens.clone();
-        Box::new(move |pointer| lift(&lens, &whole, inner(pointer)))
+        Box::new(move |pointer| lift(&lens, &whole, &whole_view_fn, &dragged, inner(pointer)))
     })
 }
 
 /// The frame of the whole state for a frame of its part.
-fn lift<S, T>(lens: &Lens<S, T>, whole: &S, frame: Frame<T>) -> Frame<S>
+///
+/// Instead of rebinding the inner view (which would strip all drag factories), we render the
+/// full view from the updated state and merge the dragged node's transform from the inner view.
+/// This keeps all sibling nodes draggable - a zipper over the view's nodes.
+fn lift<S, T>(
+    lens: &Lens<S, T>,
+    whole: &S,
+    view_fn: &ViewFn<S>,
+    dragged: &NodeId,
+    frame: Frame<T>,
+) -> Frame<S>
 where
     S: Clone + Send + Sync + 'static,
     T: Clone + Send + Sync + 'static,
 {
-    let mut lifted = Frame::new(
-        frame.view.rebind(),
-        lens.set(whole, frame.drop_state),
-        frame.gap,
-    );
+    let drop_state = lens.set(whole, frame.drop_state);
+    // Render the full view with all drag factories intact.
+    let mut full_view = view_fn.call(&drop_state);
+    // Merge the dragged node's transform from the inner view.
+    if let Some(inner_transform) = frame.view.world_transform(dragged) {
+        full_view.set_world_transform(dragged, inner_transform);
+    }
+    let mut lifted = Frame::new(full_view, drop_state, frame.gap);
     lifted.branch = frame.branch;
     lifted.branch_transition = frame.branch_transition;
     lifted.drop_transition = frame.drop_transition;
@@ -154,8 +163,49 @@ mod tests {
             .with(ViewNode::circle("twin", 1.0).at_xy(Vec2::new(two.right as f32 * 10.0, 50.0)))
     }
 
+    /// Like [`two_view`], but every node carries a drag factory so the zipper can preserve them.
+    fn two_view_draggable(two: &Two) -> View<Two> {
+        View::new()
+            .with(
+                ViewNode::circle("item", 1.0)
+                    .at_xy(Vec2::new(two.left as f32 * 10.0, 0.0))
+                    .draggable(move || {
+                        substate(
+                            Lens::new(
+                                |t: &Two| t.left,
+                                |t: &Two, v| Two {
+                                    left: v,
+                                    ..t.clone()
+                                },
+                            ),
+                            closest_states([0usize, 1, 2]),
+                        )
+                    }),
+            )
+            .with(
+                ViewNode::circle("twin", 1.0)
+                    .at_xy(Vec2::new(two.right as f32 * 10.0, 50.0))
+                    .draggable(move || {
+                        substate(
+                            Lens::new(
+                                |t: &Two| t.right,
+                                |t: &Two, v| Two {
+                                    right: v,
+                                    ..t.clone()
+                                },
+                            ),
+                            closest_states([0usize, 1, 2]),
+                        )
+                    }),
+            )
+    }
+
     fn two_context() -> DragContext<Two> {
         DragContext::new(two_view, "item".into(), Two { left: 0, right: 2 })
+    }
+
+    fn two_context_draggable() -> DragContext<Two> {
+        DragContext::new(two_view_draggable, "item".into(), Two { left: 0, right: 2 })
     }
 
     fn left() -> Lens<Two, usize> {
@@ -180,10 +230,22 @@ mod tests {
     }
 
     #[test]
-    fn the_preview_nodes_are_not_draggable() {
+    fn the_preview_keeps_sibling_nodes_draggable() {
         let spec = substate(left(), closest_states([0, 1]));
-        let frame = spec.compile(&two_context())(Pointer::from(Vec2::ZERO));
-        assert!(frame.view.nodes().iter().all(|node| node.drag.is_none()));
+        let frame = spec.compile(&two_context_draggable())(Pointer::from(Vec2::ZERO));
+        // The "twin" node is not dragged by the substate spec, so it keeps its drag factory
+        // from the view function. The dragged "item" node also retains its drag factory.
+        let item = frame.view.get("item").expect("item node exists");
+        let twin = frame.view.get("twin").expect("twin node exists");
+        // Both nodes retain their drag factories from the full view.
+        assert!(
+            item.drag.is_some(),
+            "dragged node should keep its drag factory"
+        );
+        assert!(
+            twin.drag.is_some(),
+            "sibling node should keep its drag factory"
+        );
     }
 
     #[test]
@@ -220,7 +282,7 @@ mod tests {
         assert_eq!(frame.drop_transition, Some(0.25));
     }
 
-    /// Verifies that `substate` propagates the parent's DragSpace to the inner spec.
+    /// Verifies that `substate` propagates the parent's `DragSpace` to the inner spec.
     ///
     /// Without `.with_space()`, the inner spec would default to the XY world plane, so a drag
     /// on the XZ ground plane would move in the wrong direction.

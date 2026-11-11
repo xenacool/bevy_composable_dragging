@@ -60,7 +60,7 @@ pub fn run(app: &mut App) {
             slot_position(3) * 1.25,
         ))
         .add_plugins(
-            AutoScreenshotPlugin::new("screenshot_ring_of_beads.webp")
+            AutoScreenshotPlugin::new("screenshot_ring_of_beads.gif")
                 .with_title("ring_of_beads")
                 .with_description("closest on a ring")
                 .animation(600),
@@ -79,7 +79,7 @@ fn main() {
             slot_position(3) * 1.25,
         ))
         .add_plugins(
-            AutoScreenshotPlugin::new("screenshot_ring_of_beads.webp")
+            AutoScreenshotPlugin::new("screenshot_ring_of_beads.gif")
                 .with_title("ring_of_beads")
                 .with_description("closest on a ring")
                 .animation(600),

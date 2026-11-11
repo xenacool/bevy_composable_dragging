@@ -15,7 +15,7 @@
 //! Run with `cargo run --example lists_in_lists --features pbr`.
 
 use bevy::prelude::*;
-use bevy_composable_dragging::ops::{closest, state, vary};
+use bevy_composable_dragging::ops::{closest, state, substate, vary, Lens};
 use bevy_composable_dragging::{DragSpec, DraggablePlugin, View, ViewNode, param};
 
 mod common;
@@ -170,6 +170,13 @@ fn placements(base: &Canvas, item: &Item) -> Vec<Canvas> {
     placements
 }
 
+/// The isolated position of the dragged item when it is free on the canvas.
+#[derive(Clone, Copy, Debug)]
+struct FreePos {
+    x: f32,
+    y: f32,
+}
+
 fn item_spec(canvas: &Canvas, id: &str) -> DragSpec<Canvas> {
     let Some((base, item)) = without(canvas, id) else {
         return state(canvas.clone());
@@ -187,19 +194,37 @@ fn item_spec(canvas: &Canvas, id: &str) -> DragSpec<Canvas> {
             center - Vec2::new(GRIP / 2.0, 0.0),
         ),
     };
-    let mut free = base.clone();
-    free.rows.push(Placed {
-        row,
-        x: at.x,
-        y: at.y,
-    });
-    let index = free.rows.len() - 1;
-    let free_spec = vary(
-        free,
-        [
-            param!(Canvas, rows[index].x).with_scale(1.0),
-            param!(Canvas, rows[index].y).with_scale(1.0),
-        ],
+    let free_base = base.clone();
+    let free_index = {
+        let mut free = free_base.clone();
+        free.rows.push(Placed {
+            row: row.clone(),
+            x: at.x,
+            y: at.y,
+        });
+        free.rows.len() - 1
+    };
+    let pos_lens = Lens::new(
+        move |c: &Canvas| FreePos {
+            x: c.rows[free_index].x,
+            y: c.rows[free_index].y,
+        },
+        move |c: &Canvas, pos| {
+            let mut c = c.clone();
+            c.rows[free_index].x = pos.x;
+            c.rows[free_index].y = pos.y;
+            c
+        },
+    );
+    let free_spec = substate(
+        pos_lens,
+        vary(
+            FreePos { x: at.x, y: at.y },
+            [
+                param!(FreePos, x).with_scale(1.0),
+                param!(FreePos, y).with_scale(1.0),
+            ],
+        ),
     );
     let candidates = placements(&base, &item);
     if candidates.is_empty() {
@@ -369,7 +394,7 @@ pub fn run(app: &mut App) {
             Vec2::new(-1.7, 1.45),
         ))
         .add_plugins(
-            AutoScreenshotPlugin::new("screenshot_lists_in_lists.webp")
+            AutoScreenshotPlugin::new("screenshot_lists_in_lists.gif")
                 .with_title("lists_in_lists")
                 .with_description("closest + when_far + overlay, rows nested to any depth")
                 .animation(600),
@@ -388,7 +413,7 @@ fn main() {
             Vec2::new(-1.7, 1.45),
         ))
         .add_plugins(
-            AutoScreenshotPlugin::new("screenshot_lists_in_lists.webp")
+            AutoScreenshotPlugin::new("screenshot_lists_in_lists.gif")
                 .with_title("lists_in_lists")
                 .with_description("closest + when_far + overlay, rows nested to any depth")
                 .animation(600),

@@ -52,7 +52,7 @@ pub fn run(app: &mut App) {
             slot_position(3) + Vec2::new(0.6, 0.1),
         ))
         .add_plugins(
-            AutoScreenshotPlugin::new("screenshot_reorder_list.webp")
+            AutoScreenshotPlugin::new("screenshot_reorder_list.gif")
                 .with_title("reorder_list")
                 .with_description("closest + floating")
                 .animation(600),
@@ -71,7 +71,7 @@ fn main() {
             slot_position(3) + Vec2::new(0.6, 0.1),
         ))
         .add_plugins(
-            AutoScreenshotPlugin::new("screenshot_reorder_list.webp")
+            AutoScreenshotPlugin::new("screenshot_reorder_list.gif")
                 .with_title("reorder_list")
                 .with_description("closest + floating")
                 .animation(600),

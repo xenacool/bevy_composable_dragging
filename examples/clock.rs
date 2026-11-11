@@ -95,7 +95,7 @@ pub fn run(app: &mut App) {
             from - TAU * 0.2,
         ))
         .add_plugins(
-            AutoScreenshotPlugin::new("screenshot_clock.webp")
+            AutoScreenshotPlugin::new("screenshot_clock.gif")
                 .with_title("clock")
                 .with_description("vary one number")
                 .animation(600),
@@ -118,7 +118,7 @@ fn main() {
             from - TAU * 0.2,
         ))
         .add_plugins(
-            AutoScreenshotPlugin::new("screenshot_clock.webp")
+            AutoScreenshotPlugin::new("screenshot_clock.gif")
                 .with_title("clock")
                 .with_description("vary one number")
                 .animation(600),

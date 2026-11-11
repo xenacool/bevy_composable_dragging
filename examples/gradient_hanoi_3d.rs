@@ -130,7 +130,7 @@ pub fn run(app: &mut App) {
             disk_position(1, 0) + Vec2::new(0.7, 0.8),
         ))
         .add_plugins(
-            AutoScreenshotPlugin::new("screenshot_gradient_hanoi_3d.webp")
+            AutoScreenshotPlugin::new("screenshot_gradient_hanoi_3d.gif")
                 .with_title("gradient_hanoi_3d")
                 .with_description("shapes-3d")
                 .animation(600),
@@ -156,7 +156,7 @@ fn main() {
             disk_position(1, 0) + Vec2::new(0.7, 0.8),
         ))
         .add_plugins(
-            AutoScreenshotPlugin::new("screenshot_gradient_hanoi_3d.webp")
+            AutoScreenshotPlugin::new("screenshot_gradient_hanoi_3d.gif")
                 .with_title("gradient_hanoi_3d")
                 .with_description("shapes-3d")
                 .animation(600),

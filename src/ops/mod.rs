@@ -30,7 +30,8 @@ mod when_far;
 pub use between::{BetweenOptions, DropRule, Interpolation, between, between_with};
 pub use button::button;
 pub use closest::{
-    ClosestOptions, closest, closest_states, closest_with_options, closest_with_stickiness,
+    ClosestOptions, closest, closest_states, closest_states_with_stickiness, closest_with_options,
+    closest_with_stickiness,
 };
 pub use drop_target::{drop_target, drop_target_with_bounds};
 pub use floating::FloatingOptions;

@@ -155,6 +155,15 @@ pub fn closest_states<S: Clone + Send + Sync + 'static>(
     closest(states.into_iter().map(state))
 }
 
+/// Like [`closest_states`], but the current branch is kept until another is nearer by more than
+/// `stickiness` world units.
+pub fn closest_states_with_stickiness<S: Clone + Send + Sync + 'static>(
+    states: impl IntoIterator<Item = S>,
+    stickiness: f32,
+) -> DragSpec<S> {
+    closest_with_stickiness(states.into_iter().map(state), stickiness)
+}
+
 /// Picks the index of the branch to show: the one with the smallest gap, where the `current`
 /// branch counts `stickiness` smaller. Ties go to the first branch.
 pub(crate) fn select_branch(gaps: &[f32], current: Option<usize>, stickiness: f32) -> usize {

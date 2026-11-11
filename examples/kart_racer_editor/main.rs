@@ -128,7 +128,7 @@ pub fn run(app: &mut App) {
     editor(app)
         .add_plugins(TourPlugin::new(tour::tour))
         .add_plugins(
-            AutoScreenshotPlugin::new("screenshot_kart_racer_editor.webp")
+            AutoScreenshotPlugin::new("screenshot_kart_racer_editor.gif")
                 .with_title("kart_racer_editor")
                 .with_description("Pull, widen, sculpt")
                 .animation(TOUR_FRAMES),
@@ -141,7 +141,7 @@ fn main() {
     editor(&mut app)
         .add_plugins(TourPlugin::new(tour::tour))
         .add_plugins(
-            AutoScreenshotPlugin::new("screenshot_kart_racer_editor.webp")
+            AutoScreenshotPlugin::new("screenshot_kart_racer_editor.gif")
                 .with_title("kart_racer_editor")
                 .with_description("Pull, widen, sculpt")
                 .animation(TOUR_FRAMES),

@@ -235,7 +235,7 @@ pub fn run(app: &mut App) {
             Vec2::new(PIVOT.x + 2.3, PIVOT.y),
         ))
         .add_plugins(
-            AutoScreenshotPlugin::new("screenshot_gizmo_3d.webp")
+            AutoScreenshotPlugin::new("screenshot_gizmo_3d.gif")
                 .with_title("gizmo_3d")
                 .with_description("transform gizmos in 3D drag spaces")
                 .animation(600),
@@ -259,7 +259,7 @@ fn main() {
             Vec2::new(PIVOT.x + 2.3, PIVOT.y),
         ))
         .add_plugins(
-            AutoScreenshotPlugin::new("screenshot_gizmo_3d.webp")
+            AutoScreenshotPlugin::new("screenshot_gizmo_3d.gif")
                 .with_title("gizmo_3d")
                 .with_description("transform gizmos in 3D drag spaces")
                 .animation(600),

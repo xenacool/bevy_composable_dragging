@@ -77,7 +77,7 @@ pub fn run(app: &mut App) {
             cell_position(5),
         ))
         .add_plugins(
-            AutoScreenshotPlugin::new("screenshot_chain_of_cells.webp")
+            AutoScreenshotPlugin::new("screenshot_chain_of_cells.gif")
                 .with_title("chain_of_cells")
                 .with_description("with_chaining + overlay")
                 .animation(600),
@@ -96,7 +96,7 @@ fn main() {
             cell_position(5),
         ))
         .add_plugins(
-            AutoScreenshotPlugin::new("screenshot_chain_of_cells.webp")
+            AutoScreenshotPlugin::new("screenshot_chain_of_cells.gif")
                 .with_title("chain_of_cells")
                 .with_description("with_chaining + overlay")
                 .animation(600),

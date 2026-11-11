@@ -346,7 +346,7 @@ pub fn run(app: &mut App) {
             Vec2::new(0.0, 2.6),
         ))
         .add_plugins(
-            AutoScreenshotPlugin::new("screenshot_physics_lab.webp")
+            AutoScreenshotPlugin::new("screenshot_physics_lab.gif")
                 .with_title("physics_lab")
                 .with_description("3D physics shapes dragged onto a grid, simulated with avian")
                 .animation(600),
@@ -362,7 +362,7 @@ fn main() {
             Vec2::new(0.0, 2.6),
         ))
         .add_plugins(
-            AutoScreenshotPlugin::new("screenshot_physics_lab.webp")
+            AutoScreenshotPlugin::new("screenshot_physics_lab.gif")
                 .with_title("physics_lab")
                 .with_description("3D physics shapes dragged onto a grid, simulated with avian")
                 .animation(600),

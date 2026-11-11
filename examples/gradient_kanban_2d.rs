@@ -138,7 +138,7 @@ pub fn run(app: &mut App) {
             slot_position(1, 1) + Vec2::new(0.3, 0.45),
         ))
         .add_plugins(
-            AutoScreenshotPlugin::new("screenshot_gradient_kanban_2d.webp")
+            AutoScreenshotPlugin::new("screenshot_gradient_kanban_2d.gif")
                 .with_title("gradient_kanban_2d")
                 .with_description(TITLES.join(" | "))
                 .animation(600),
@@ -162,7 +162,7 @@ fn main() {
             slot_position(1, 1) + Vec2::new(0.3, 0.45),
         ))
         .add_plugins(
-            AutoScreenshotPlugin::new("screenshot_gradient_kanban_2d.webp")
+            AutoScreenshotPlugin::new("screenshot_gradient_kanban_2d.gif")
                 .with_title("gradient_kanban_2d")
                 .with_description(TITLES.join(" | "))
                 .animation(600),

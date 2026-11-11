@@ -114,7 +114,7 @@ impl AutoScreenshotPlugin {
     ///
     /// Instead of capturing a single screenshot, this captures one PNG frame per app tick
     /// while the scripted drag runs. Each tick advances the clock by exactly `1 / ANIMATION_FPS`
-    /// seconds, so the frames encode to an animated WebP that plays back at real speed.
+    /// seconds, so the frames encode to an animated GIF that plays back at real speed.
     pub fn animation(mut self, frames: u32) -> Self {
         self.animation = true;
         self.animation_frames = frames.max(2);

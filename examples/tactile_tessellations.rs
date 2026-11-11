@@ -43,9 +43,10 @@ use std::f32::consts::{FRAC_PI_2, PI, TAU};
 use avian2d::prelude::{Collider, PhysicsPlugins, RigidBody};
 use bevy::prelude::*;
 use bevy_composable_dragging::ops::{
-    closest, custom, drop_target, state, switch_to_state_and_follow, vary_constrained,
+    Lens, closest, custom, drop_target, state, substate, switch_to_state_and_follow,
+    vary_constrained,
 };
-use bevy_composable_dragging::{Constraint, DragSpec, DraggablePlugin, Param, View, ViewNode};
+use bevy_composable_dragging::{Constraint, DragSpec, DraggablePlugin, View, ViewNode, param};
 use bevy_gradmesh::{Shape, ShapeDetail, Style};
 
 mod common;
@@ -62,7 +63,7 @@ const EDGE_TOLERANCE: f32 = 0.002;
 const GAP: f32 = 0.6;
 /// The thickness of the outline of a tile.
 const OUTLINE: f32 = 0.04;
-/// The number of sides of the polygons in the palette.
+/// The number of sides for each shape in the palette.
 const KINDS: [u32; 4] = [3, 4, 6, 8];
 /// The height of the canvas in world units (450 px in the original).
 const CANVAS_HEIGHT: f32 = 9.0;
@@ -161,6 +162,9 @@ fn normalize_angle(radians: f32) -> f32 {
 // State
 // ---------------------------------------------------------------------------------------------
 
+/// The number of sides of a regular polygon tile.
+type TileKind = u32;
+
 #[derive(Clone, Debug, PartialEq)]
 struct Tile {
     id: u32,
@@ -182,6 +186,13 @@ struct Snap {
     rot_deg: f32,
 }
 
+/// The position and rotation of a single tile, isolated from the rest of the board.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct TilePose {
+    pos: Vec2,
+    rot_deg: f32,
+}
+
 impl Board {
     fn tile(&self, id: u32) -> &Tile {
         self.tiles
@@ -190,28 +201,22 @@ impl Board {
             .expect("the dragged tile exists")
     }
 
-    fn tile_mut(&mut self, id: u32) -> &mut Tile {
-        self.tiles
-            .iter_mut()
-            .find(|tile| tile.id == id)
-            .expect("the dragged tile exists")
-    }
-
-    fn snapped(&self, id: u32, snap: Snap) -> Self {
+    /// The board with the tile `id` posed as `pose`, or without it for `None`.
+    fn with_tile(&self, id: u32, pose: Option<TilePose>) -> Self {
         let mut board = self.clone();
-        let tile = board.tile_mut(id);
-        tile.pos = snap.pos;
-        tile.rot_deg = snap.rot_deg;
+        match pose {
+            Some(pose) => {
+                if let Some(tile) = board.tiles.iter_mut().find(|tile| tile.id == id) {
+                    tile.pos = pose.pos;
+                    tile.rot_deg = pose.rot_deg;
+                }
+            }
+            None => board.tiles.retain(|tile| tile.id != id),
+        }
         board
     }
 
-    fn without(&self, id: u32) -> Self {
-        let mut board = self.clone();
-        board.tiles.retain(|tile| tile.id != id);
-        board
-    }
-
-    /// The board with a new tile of `sides` sides at `pos`.
+    /// The board with a new tile of the given `sides` at `pos`.
     fn with_new(&self, sides: u32, pos: Vec2) -> (Self, u32) {
         let mut board = self.clone();
         let id = board.next_id;
@@ -226,7 +231,7 @@ impl Board {
     }
 }
 
-/// Whether a tile of `sides` sides at `pos` turned by `rot_deg` overlaps any tile but `exclude`.
+/// Whether a tile with `sides` at `pos` turned by `rot_deg` overlaps any tile but `exclude`.
 fn overlaps_any(sides: u32, pos: Vec2, rot_deg: f32, tiles: &[Tile], exclude: Option<u32>) -> bool {
     let candidate = world_vertices(sides, pos, rot_deg);
     tiles
@@ -238,7 +243,7 @@ fn overlaps_any(sides: u32, pos: Vec2, rot_deg: f32, tiles: &[Tile], exclude: Op
         })
 }
 
-/// Every valid edge-to-edge placement of a tile with `sides` sides against `tiles`.
+/// Every valid edge-to-edge placement of a tile with `sides` against `tiles`.
 ///
 /// Two edges snap when they have the same length and can be laid flush against each other with
 /// reversed direction. The tile turns by the least angle that does so, and snaps whose result
@@ -283,45 +288,53 @@ fn anchored_at_center(spec: DragSpec<Board>) -> DragSpec<Board> {
     })
 }
 
-/// A parameter of the tile `id`.
-fn tile_param(id: u32, get: fn(&Tile) -> f32, set: fn(&mut Tile, f32)) -> Param<Board> {
-    Param::new(
-        move |board: &Board| get(board.tile(id)),
-        move |board: &mut Board, value| set(board.tile_mut(id), value),
-    )
-}
-
-/// The drag of a tile: snap to the nearest valid edge, drop on the bin to delete, or follow the
-/// pointer when far from both, but never overlap another tile.
+/// The drag of a tile: its pose snaps edge-to-edge, it is dropped on the bin to delete it, or it
+/// follows the pointer freely on the canvas when far from any snap.
 fn tile_spec(board: &Board, id: u32) -> DragSpec<Board> {
     let tile = board.tile(id);
-    let snaps = compute_snaps(tile.sides, &board.tiles, Some(id));
-    let mut branches: Vec<DragSpec<Board>> = snaps
-        .into_iter()
-        .map(|snap| state(board.snapped(id, snap)))
-        .collect();
-    branches.push(drop_target(TRASH, board.without(id)));
     let sides = tile.sides;
+    let start = TilePose {
+        pos: tile.pos,
+        rot_deg: tile.rot_deg,
+    };
+    let snaps = compute_snaps(sides, &board.tiles, Some(id));
     let other_tiles: Vec<Tile> = board.tiles.iter().filter(|t| t.id != id).cloned().collect();
-    let no_overlap = Constraint::new(move |state: &Board| {
-        let t = state.tile(id);
-        if overlaps_any(sides, t.pos, t.rot_deg, &other_tiles, None) {
+
+    let no_overlap = Constraint::new(move |pose: &TilePose| {
+        if overlaps_any(sides, pose.pos, pose.rot_deg, &other_tiles, None) {
             100.0
         } else {
             0.0
         }
     });
     let free = vary_constrained(
-        board.clone(),
+        start,
         [
-            tile_param(id, |tile| tile.pos.x, |tile, x| tile.pos.x = x),
-            tile_param(id, |tile| tile.pos.y, |tile, y| tile.pos.y = y),
-            tile_param(id, |tile| tile.rot_deg, |tile, r| tile.rot_deg = r).with_scale(360.0),
+            param!(TilePose, pos.x),
+            param!(TilePose, pos.y),
+            param!(TilePose, rot_deg).with_scale(360.0),
         ],
         no_overlap,
     );
+    let pose = Lens::new(
+        move |tile: &Option<TilePose>| tile.unwrap_or(start),
+        |_, pose| Some(pose),
+    );
+    let branches = snaps
+        .into_iter()
+        .map(|snap| state(Some(TilePose { pos: snap.pos, rot_deg: snap.rot_deg })))
+        .chain([drop_target(TRASH, None)])
+        .collect::<Vec<_>>();
+    let tile = Lens::new(
+        move |board: &Board| Some(TilePose { pos: board.tile(id).pos, rot_deg: board.tile(id).rot_deg }),
+        move |board: &Board, pose| board.with_tile(id, pose),
+    );
     let node = tile_id(id);
-    anchored_at_center(closest(branches).when_far(free, GAP)).change_result(move |mut frame| {
+    anchored_at_center(substate(
+        tile,
+        closest(branches).when_far(substate(pose, free), GAP),
+    ))
+    .change_result(move |mut frame| {
         if let Some(dragged) = frame.view.get_mut(&node) {
             dragged.transform.translation.z = TILE_Z + 1.0;
         }
@@ -347,7 +360,8 @@ fn fill(sides: u32) -> Color {
         3 => Color::srgb_u8(0xfc, 0xa5, 0xa5),
         4 => Color::srgb_u8(0x93, 0xc5, 0xfd),
         6 => Color::srgb_u8(0x86, 0xef, 0xac),
-        _ => Color::srgb_u8(0xfd, 0xe6, 0x8a),
+        8 => Color::srgb_u8(0xfd, 0xe6, 0x8a),
+        _ => Color::srgb_u8(0xcc, 0xcc, 0xcc),
     }
 }
 
@@ -356,30 +370,33 @@ fn stroke(sides: u32) -> Color {
         3 => Color::srgb_u8(0xef, 0x44, 0x44),
         4 => Color::srgb_u8(0x3b, 0x82, 0xf6),
         6 => Color::srgb_u8(0x16, 0xa3, 0x4a),
-        _ => Color::srgb_u8(0xca, 0x8a, 0x04),
+        8 => Color::srgb_u8(0xca, 0x8a, 0x04),
+        _ => Color::srgb_u8(0x88, 0x88, 0x88),
     }
 }
 
-/// The polygon of a tile with the given look. The mesh is shared by all tiles of a kind.
-fn polygon<S>(
+/// The gradmesh shape for a regular polygon.
+fn tile_shape(sides: u32) -> Shape {
+    Shape::arbitrary_polygon(vertices(sides), ShapeDetail::Medium)
+}
+
+/// A tile shape with its fill color.
+fn tile_node<S>(
     id: impl Into<bevy_composable_dragging::NodeId>,
     sides: u32,
     color: Color,
 ) -> ViewNode<S> {
-    ViewNode::grad(
-        id,
-        Shape::arbitrary_polygon(vertices(sides), ShapeDetail::Medium),
-    )
-    .with_style(Style::shaded(color, 1.0))
+    ViewNode::grad(id, tile_shape(sides))
+        .with_style(Style::shaded(color, 1.0))
 }
 
-/// A polygon with its outline: the outline is a larger polygon of the stroke color behind it.
+/// A tile shape with its outline: the outline is a larger shape of the stroke color behind it.
 fn outlined(id: &str, sides: u32, opacity: f32) -> [ViewNode<Board>; 2] {
     let apothem = SIDE / (2.0 * (PI / sides as f32).tan());
     let outline_scale = 1.0 + OUTLINE / apothem;
     [
-        polygon(id.to_owned(), sides, fill(sides)).with_opacity(opacity),
-        polygon(format!("{id}/outline"), sides, stroke(sides))
+        tile_node(id.to_owned(), sides, fill(sides)).with_opacity(opacity),
+        tile_node(format!("{id}/outline"), sides, stroke(sides))
             .with_parent(id.to_owned())
             .with_opacity(opacity)
             .with_z(-0.01)
@@ -387,14 +404,15 @@ fn outlined(id: &str, sides: u32, opacity: f32) -> [ViewNode<Board>; 2] {
     ]
 }
 
-/// The center of the palette item for a polygon: the bottoms of all items rest on one line.
+/// The center of the palette item for a shape: the bottoms of all items rest on one line.
 fn palette_position(sides: u32) -> Vec2 {
     const BASELINE: f32 = 1.8;
     let x = match sides {
         3 => -5.0,
-        4 => -3.2,
-        6 => -1.1,
-        _ => 1.4,
+        4 => -2.5,
+        6 => 0.0,
+        8 => 2.5,
+        _ => 0.0,
     };
     let lowest = vertices(sides)
         .iter()
@@ -450,10 +468,11 @@ fn view(board: &Board) -> View<Board> {
 
     for tile in &board.tiles {
         let id = tile.id;
+        let sides = tile.sides;
         let snapshot = board.clone();
-        let [fill, outline] = outlined(&tile_id(id), tile.sides, 1.0);
+        let [shape, outline] = outlined(&tile_id(id), sides, 1.0);
         view.push(
-            fill.at_xy(tile.pos)
+            shape.at_xy(tile.pos)
                 .with_z(TILE_Z)
                 .with_rotation_xy(tile.rot_deg.to_radians())
                 .draggable(move || tile_spec(&snapshot, id)),
@@ -504,7 +523,7 @@ pub fn run(app: &mut App) {
         .add_systems(Startup, spawn_tile_colliders)
         .add_plugins(ScriptedDragPlugin::straight(palette_position(4), target))
         .add_plugins(
-            AutoScreenshotPlugin::new("screenshot_tactile_tessellations.webp")
+            AutoScreenshotPlugin::new("screenshot_tactile_tessellations.gif")
                 .with_title("tactile_tessellations")
                 .with_description("snapping, rotation, trash bin")
                 .animation(600),
@@ -544,7 +563,7 @@ fn main() {
         .add_systems(Startup, spawn_tile_colliders)
         .add_plugins(ScriptedDragPlugin::straight(palette_position(4), target))
         .add_plugins(
-            AutoScreenshotPlugin::new("screenshot_tactile_tessellations.webp")
+            AutoScreenshotPlugin::new("screenshot_tactile_tessellations.gif")
                 .with_title("tactile_tessellations")
                 .with_description("snapping, rotation, trash bin")
                 .animation(600),
@@ -557,6 +576,8 @@ fn main() {
 
 #[cfg(test)]
 mod tests {
+    use bevy_composable_dragging::{DragContext, Pointer};
+
     use super::*;
 
     fn tile(id: u32, sides: u32, pos: Vec2, rot_deg: f32) -> Tile {
@@ -568,22 +589,27 @@ mod tests {
         }
     }
 
+    fn drag(board: &Board, id: u32, pointer: Vec2) -> bevy_composable_dragging::Frame<Board> {
+        let context = DragContext::new(view, tile_id(id).into(), board.clone());
+        tile_spec(board, id).compile(&context)(Pointer::at(pointer.extend(0.0)))
+    }
+
     #[test]
     fn regular_polygons_have_unit_sides_and_a_flat_bottom() {
         for sides in KINDS {
             let corners = vertices(sides);
             assert_eq!(corners.len(), sides as usize);
             for edge in edges(&corners) {
-                assert!((edge.length() - SIDE).abs() < 1e-4, "{sides}: {edge:?}");
+                assert!((edge.length() - SIDE).abs() < 1e-4, "{}: {edge:?}", sides);
             }
             let bottom = corners.iter().map(|v| v.y).fold(f32::MAX, f32::min);
             let flat = corners
                 .iter()
                 .filter(|v| (v.y - bottom).abs() < 1e-4)
                 .count();
-            assert_eq!(flat, 2, "{sides} sides: the bottom is one edge");
+            assert_eq!(flat, 2, "{}: the bottom is one edge", sides);
             let area: f32 = edges(&corners).iter().map(|e| e.a.perp_dot(e.b)).sum();
-            assert!(area > 0.0, "{sides} sides: counterclockwise");
+            assert!(area > 0.0, "{}: counterclockwise", sides);
         }
     }
 
@@ -721,7 +747,52 @@ mod tests {
             tiles: vec![tile(0, 4, Vec2::new(5.3, 3.5), 0.0)],
             next_id: 1,
         };
-        assert_eq!(board.without(0).tiles.len(), 0);
+        assert_eq!(board.with_tile(0, None).tiles.len(), 0);
         assert_eq!(board.with_new(3, Vec2::ZERO).1, 1);
+    }
+
+    #[test]
+    fn the_other_tiles_stay_draggable_while_one_is_dragged() {
+        let board = Board {
+            tiles: vec![
+                tile(0, 4, Vec2::ZERO, 0.0),
+                tile(1, 3, Vec2::new(3.0, 0.0), 0.0),
+            ],
+            next_id: 2,
+        };
+        let frame = drag(&board, 0, Vec2::new(-4.0, -4.0));
+        assert!(frame.view.get(&tile_id(0)).unwrap().drag.is_some());
+        assert!(frame.view.get(&tile_id(1)).unwrap().drag.is_some());
+    }
+
+    #[test]
+    fn dragging_a_tile_changes_only_its_own_pose() {
+        let board = Board {
+            tiles: vec![
+                tile(0, 4, Vec2::ZERO, 0.0),
+                tile(1, 3, Vec2::new(3.0, 0.0), 0.0),
+            ],
+            next_id: 2,
+        };
+        let far = Vec2::new(-4.0, -4.0);
+        let frame = drag(&board, 1, far);
+        assert_eq!(frame.drop_state.tiles.len(), 2);
+        assert_eq!(frame.drop_state.tiles[0], board.tiles[0]);
+        assert_eq!(frame.drop_state.tiles[1].id, board.tiles[1].id);
+        assert_eq!(frame.drop_state.tiles[1].sides, board.tiles[1].sides);
+        assert_ne!(frame.drop_state.tiles[1].pos, board.tiles[1].pos);
+    }
+
+    #[test]
+    fn dropping_a_tile_on_the_bin_during_drag_deletes_it() {
+        let board = Board {
+            tiles: vec![
+                tile(0, 4, Vec2::ZERO, 0.0),
+                tile(1, 3, Vec2::new(3.0, 0.0), 0.0),
+            ],
+            next_id: 2,
+        };
+        let frame = drag(&board, 1, Vec2::new(5.3, 3.5));
+        assert_eq!(frame.drop_state.tiles, vec![board.tiles[0].clone()]);
     }
 }

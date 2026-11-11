@@ -504,7 +504,7 @@ pub fn run(app: &mut App) {
         .add_systems(Startup, spawn_banner_camera)
         .add_plugins(TourPlugin::new(tour))
         .add_plugins(
-            AutoScreenshotPlugin::new("screenshot_cozy_castle.webp")
+            AutoScreenshotPlugin::new("screenshot_cozy_castle.gif")
                 .with_title("cozy_castle")
                 .with_description("menu, stacks, arches")
                 .animation(MAX_FRAMES),
@@ -518,7 +518,7 @@ fn main() {
         .add_systems(Startup, spawn_banner_camera)
         .add_plugins(TourPlugin::new(tour))
         .add_plugins(
-            AutoScreenshotPlugin::new("screenshot_cozy_castle.webp")
+            AutoScreenshotPlugin::new("screenshot_cozy_castle.gif")
                 .with_title("cozy_castle")
                 .with_description("menu, stacks, arches")
                 .animation(MAX_FRAMES),

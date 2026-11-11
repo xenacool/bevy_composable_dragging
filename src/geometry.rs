@@ -17,6 +17,15 @@ use bevy_gradmesh::SdfMaterial2d;
 /// The thinnest half extent of [`Geometry::bounds`], so flat shapes can still be hit by a ray.
 const MIN_HALF_THICKNESS: f32 = 0.02;
 
+/// The half thickness under which a gradient shape is flat, so a press hits what is drawn of it.
+#[cfg(feature = "gradmesh")]
+const FLAT: f32 = 1e-3;
+
+/// How far a press may be outside the edge of a triangle of a drawn shape and still be on it, so
+/// that the seam between two triangles is not a gap.
+#[cfg(feature = "gradmesh")]
+const EDGE: f32 = 1e-6;
+
 /// The number of steps a morph between two shapes is quantized to, which bounds the number of
 /// distinct meshes a blend builds.
 #[cfg(feature = "gradmesh")]
@@ -233,6 +242,44 @@ impl Geometry {
             #[cfg(feature = "pbr")]
             Self::Mesh(mesh) => Bounds::new(mesh.center, mesh.half_extents, false),
         }
+    }
+
+    /// Whether a press is tested against the drawn outline instead of the box of the geometry:
+    /// a flat gradient shape, whose notches and holes are not part of it.
+    #[cfg(feature = "gradmesh")]
+    pub(crate) fn is_outline_picked(&self) -> bool {
+        matches!(self, Self::Grad(shape) if shape.bounds().half_extents().z < FLAT)
+    }
+
+    /// Whether `point` of the plane of a flat gradient shape is on the drawn shape. Only
+    /// meaningful when [`is_outline_picked`](Self::is_outline_picked) is true.
+    #[cfg(feature = "gradmesh")]
+    pub(crate) fn outline_contains(&self, point: bevy::math::Vec2) -> bool {
+        let Self::Grad(shape) = self else {
+            return true;
+        };
+        let mesh = shape.build();
+        let Some(VertexAttributeValues::Float32x3(positions)) =
+            mesh.attribute(Mesh::ATTRIBUTE_POSITION)
+        else {
+            return true;
+        };
+        let corner = |index: usize| bevy::math::Vec2::new(positions[index][0], positions[index][1]);
+        let side =
+            |from: bevy::math::Vec2, to: bevy::math::Vec2| (to - from).perp_dot(point - from);
+        let triangles: Vec<usize> = mesh.indices().map_or_else(
+            || (0..positions.len()).collect(),
+            |indices| indices.iter().collect(),
+        );
+        triangles.chunks_exact(3).any(|triangle| {
+            let (a, b, c) = (
+                corner(triangle[0]),
+                corner(triangle[1]),
+                corner(triangle[2]),
+            );
+            let sides = [side(a, b), side(b, c), side(c, a)];
+            sides.iter().all(|side| *side >= -EDGE) || sides.iter().all(|side| *side <= EDGE)
+        })
     }
 
     /// Whether the geometry is drawn with the gradient material of `bevy_gradmesh`.

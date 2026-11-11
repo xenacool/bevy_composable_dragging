@@ -32,7 +32,18 @@ pub(crate) struct DragNode<S: 'static> {
     layer: usize,
     /// Whether the entity is hidden because the preview removed its node during a drag.
     hidden: bool,
+    /// Whether the scene of the node is on the entity.
+    scene: SceneState,
     state: PhantomData<fn() -> S>,
+}
+
+/// Whether the scene of a node is on its entity.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum SceneState {
+    /// The settled view has no scene for the node yet, so there is none to apply.
+    Waiting,
+    /// The scene is on the entity.
+    Applied,
 }
 
 /// Maps node ids to the entities that render them.
@@ -77,7 +88,12 @@ pub(crate) fn sync_nodes<S: Clone + Send + Sync + 'static>(
         return;
     }
     let view = model.view();
-    let settled = model.settled_view();
+    let settled: HashMap<&str, &ViewNode<S>> = model
+        .settled_view()
+        .nodes()
+        .iter()
+        .map(|node| (node.id.as_ref(), node))
+        .collect();
     let opacities = view.effective_opacities();
     let ids: HashSet<&str> = view.nodes().iter().map(|node| node.id.as_ref()).collect();
     let mut reparent: Vec<(Entity, Option<NodeId>)> = Vec::new();
@@ -99,6 +115,20 @@ pub(crate) fn sync_nodes<S: Clone + Send + Sync + 'static>(
             if marker.hidden {
                 marker.hidden = false;
                 commands.entity(entity).insert(Visibility::Inherited);
+            }
+            // A node that first showed up in a preview the settled view has no scene for gets it
+            // once the settled view has one, and what the engine writes is written over it again.
+            if marker.scene == SceneState::Waiting
+                && let Some(scene) = settled
+                    .get(node.id.as_ref())
+                    .and_then(|node| node.scene.as_ref())
+            {
+                let apply = scene();
+                commands
+                    .entity(entity)
+                    .queue(move |mut entity: EntityWorldMut| apply(&mut entity))
+                    .insert(node.transform);
+                marker.scene = SceneState::Applied;
             }
             if marker.geometry != node.geometry
                 || marker.color != node.color
@@ -137,7 +167,10 @@ pub(crate) fn sync_nodes<S: Clone + Send + Sync + 'static>(
         } else {
             let mut spawned = commands.spawn_empty();
             // The scene goes on first, so that what the engine writes is written over it.
-            if let Some(scene) = settled.get(&node.id).and_then(|node| node.scene.as_ref()) {
+            let scene = settled
+                .get(node.id.as_ref())
+                .and_then(|node| node.scene.as_ref());
+            if let Some(scene) = scene {
                 let apply = scene();
                 spawned.queue(move |mut entity: EntityWorldMut| apply(&mut entity));
             }
@@ -157,6 +190,11 @@ pub(crate) fn sync_nodes<S: Clone + Send + Sync + 'static>(
                     mode,
                     layer: node.layer,
                     hidden: false,
+                    scene: if scene.is_some() {
+                        SceneState::Applied
+                    } else {
+                        SceneState::Waiting
+                    },
                     state: PhantomData,
                 },
                 RenderLayers::layer(node.layer),
@@ -369,6 +407,31 @@ mod tests {
         }
         app.world_mut().trigger(Ping { entity });
         assert_eq!(app.world().resource::<Pings>().0, 1);
+    }
+
+    #[test]
+    fn a_node_that_first_shows_in_a_preview_gets_its_scene_when_it_settles() {
+        // The node has no scene until step 10, as if the state a drag would settle on did not
+        // have it while the preview showed it.
+        let late = |step: &u32| -> View<u32> {
+            let node = ViewNode::sphere("late", 0.5);
+            View::new().with(if *step >= 10 {
+                node.with_scene(|| bsn! { Mark(1) })
+            } else {
+                node
+            })
+        };
+        let mut app = scene_app();
+        app.insert_resource(DragModel::new(0_u32, late));
+        app.update();
+        let entity = entity_of(&mut app, "late");
+        assert!(!app.world().entity(entity).contains::<Mark>());
+        app.world_mut()
+            .resource_mut::<DragModel<u32>>()
+            .set_state(10);
+        app.update();
+        assert_eq!(entity_of(&mut app, "late"), entity);
+        assert!(app.world().entity(entity).contains::<Mark>());
     }
 
     #[test]

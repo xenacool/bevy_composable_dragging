@@ -96,7 +96,7 @@ pub fn run(app: &mut App) {
             Vec2::new(0.6, 0.9),
         ))
         .add_plugins(
-            AutoScreenshotPlugin::new("screenshot_blend_square.webp")
+            AutoScreenshotPlugin::new("screenshot_blend_square.gif")
                 .with_title("blend_square")
                 .with_description("between_with: natural neighbor + sharpness")
                 .animation(600),
@@ -115,7 +115,7 @@ fn main() {
             Vec2::new(0.6, 0.9),
         ))
         .add_plugins(
-            AutoScreenshotPlugin::new("screenshot_blend_square.webp")
+            AutoScreenshotPlugin::new("screenshot_blend_square.gif")
                 .with_title("blend_square")
                 .with_description("between_with: natural neighbor + sharpness")
                 .animation(600),

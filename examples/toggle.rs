@@ -42,7 +42,7 @@ pub fn run(app: &mut App) {
             Vec2::new(0.1, 0.0),
         ))
         .add_plugins(
-            AutoScreenshotPlugin::new("screenshot_toggle.webp")
+            AutoScreenshotPlugin::new("screenshot_toggle.gif")
                 .with_title("toggle")
                 .with_description("between: knob half way")
                 .animation(600),
@@ -61,7 +61,7 @@ fn main() {
             Vec2::new(0.1, 0.0),
         ))
         .add_plugins(
-            AutoScreenshotPlugin::new("screenshot_toggle.webp")
+            AutoScreenshotPlugin::new("screenshot_toggle.gif")
                 .with_title("toggle")
                 .with_description("between: knob half way")
                 .animation(600),

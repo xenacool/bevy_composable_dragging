@@ -3,30 +3,29 @@
 //!
 //! Drag a tile out of the palette shelf. Near other tiles it snaps face-to-face: the library
 //! computes a convex polyhedron for each shape, finds compatible faces by vertex count,
-//! aligns the face normals, and places the tile so the faces meet flush.  Far from every
-//! snap the tile follows the pointer freely on the ground plane, varying position and yaw.
+//! aligns the face normals, and places the tile so the faces meet flush. Far from every snap
+//! the tile follows the pointer freely, varying position and yaw, and never into another tile.
 //! Dropping a tile on the trash bin deletes it.
 //!
-//! The tile spec is `closest(snaps + trash bin)` with `when_far` handing over to
-//! `vary(x, z, yaw)`, anchored at the center of the tile.  Palette items start a drag
-//! with `switch_to_state_and_follow`.
+//! A drag is a `substate` zipper on the one tile: its spec only sees the tile's pose, or `None`
+//! once it is dropped on the bin, and every other tile stays as it was, in view and draggable.
+//! Snapping uses pure geometry on one polyhedron per kind of tile, built once for a drag. The
+//! drag space is [`DragSpace::Screen`](bevy_composable_dragging::DragSpace::Screen), so the
+//! pointer plane always faces the camera.
 //!
-//! Every tile is a true low-poly polyhedron from `bevy_gradmesh`: tetrahedra (4 faces),
-//! square pyramids (5 faces), cubes (6 faces), and pentagonal stars (2 faces).  Snapping
-//! uses pure geometry: mesh vertices are extracted, coplanar triangles merged into faces,
-//! and overlap tested with the separating axis theorem.  The drag space is the XZ ground
-//! plane for natural pointer tracking.
-//!
-//! Run with `cargo run --example tactile_tessellations_3d --features shapes-3d,snapping`.
+//! Run with `cargo run --example tactile_tessellations_3d --features shapes-3d`.
+
+use std::collections::HashMap;
 
 use avian3d::prelude::{Collider, PhysicsPlugins, RigidBody};
 use bevy::prelude::*;
 use bevy_composable_dragging::ops::{
-    closest, custom, drop_target, state, switch_to_state_and_follow, vary_constrained,
+    Lens, closest, custom, drop_target, state, substate, switch_to_state_and_follow,
+    vary_constrained,
 };
-use bevy_composable_dragging::snapping::{self, Snap3D, Tile3D};
+use bevy_composable_dragging::snapping::{self, Polyhedron, Tile3D};
 use bevy_composable_dragging::{
-    Constraint, DragSpace, DragSpec, DraggablePlugin, Param, View, ViewNode,
+    Constraint, DragSpace, DragSpec, DraggablePlugin, Param, View, ViewNode, param,
 };
 use bevy_gradmesh::{Shape, ShapeDetail, Style};
 
@@ -35,7 +34,7 @@ use common::screenshot::AutoScreenshotPlugin;
 use common::script::ScriptedDragPlugin;
 
 /// The kind of low-poly 3D shape a tile draws.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 enum ShapeKind {
     /// Tetrahedron-like pyramid (4 triangular faces).
     Tetrahedron,
@@ -48,15 +47,12 @@ enum ShapeKind {
 }
 
 impl ShapeKind {
-    /// All available shape kinds.
-    fn all() -> [ShapeKind; 4] {
-        [
-            ShapeKind::Tetrahedron,
-            ShapeKind::Pyramid,
-            ShapeKind::Cube,
-            ShapeKind::Star,
-        ]
-    }
+    const ALL: [ShapeKind; 4] = [
+        ShapeKind::Tetrahedron,
+        ShapeKind::Pyramid,
+        ShapeKind::Cube,
+        ShapeKind::Star,
+    ];
 }
 
 /// The id of the trash bin node.
@@ -68,19 +64,18 @@ const LIFT: f32 = 0.5;
 /// Maximum distance from a snap before free-drag mode takes over.
 const SNAP_RANGE: f32 = 1.5;
 
-// ---------------------------------------------------------------------------------------------
-// State
-// ---------------------------------------------------------------------------------------------
+/// Where a tile is and how it is turned.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct Pose {
+    pos: Vec3,
+    rotation: Quat,
+}
 
 #[derive(Clone, Debug, PartialEq)]
 struct Tile {
     id: u32,
-    /// The kind of shape this tile draws.
     kind: ShapeKind,
-    /// Full 3D position of the tile center.
-    pos: Vec3,
-    /// Full 3D rotation (orientation) of the tile.
-    rotation: Quat,
+    pose: Pose,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -97,58 +92,72 @@ impl Board {
             .expect("the dragged tile exists")
     }
 
-    fn tile_mut(&mut self, id: u32) -> &mut Tile {
-        self.tiles
-            .iter_mut()
-            .find(|tile| tile.id == id)
-            .expect("the dragged tile exists")
-    }
-
-    /// Snap the tile with `id` to the given 3D snap position.
-    fn snapped(&self, id: u32, snap: Snap3D) -> Self {
+    /// The board with the tile `id` posed as `pose`, or without it for `None`.
+    fn with_tile(&self, id: u32, pose: Option<Pose>) -> Self {
         let mut board = self.clone();
-        let tile = board.tile_mut(id);
-        tile.pos = snap.pos;
-        tile.rotation = snap.rotation;
+        match pose {
+            Some(pose) => {
+                if let Some(tile) = board.tiles.iter_mut().find(|tile| tile.id == id) {
+                    tile.pose = pose;
+                }
+            }
+            None => board.tiles.retain(|tile| tile.id != id),
+        }
         board
     }
 
-    fn without(&self, id: u32) -> Self {
-        let mut board = self.clone();
-        board.tiles.retain(|tile| tile.id != id);
-        board
-    }
-
-    /// The board with a new tile of the given `kind` at `pos`.
+    /// The board with a new tile of the given `kind` at `pos`, and the id of the tile.
     fn with_new(&self, kind: ShapeKind, pos: Vec3) -> (Self, u32) {
         let mut board = self.clone();
         let id = board.next_id;
         board.next_id += 1;
-        board.tiles.push(Tile {
-            id,
-            kind,
+        let pose = Pose {
             pos,
             rotation: Quat::IDENTITY,
-        });
+        };
+        board.tiles.push(Tile { id, kind, pose });
         (board, id)
     }
 
-    /// Build a list of [`Tile3D`] instances for snap computation.
-    fn to_tile3d(&self) -> Vec<Tile3D> {
+    /// The tiles as the shapes that the snapping reads.
+    fn tiles_3d(&self, polyhedra: &HashMap<ShapeKind, Polyhedron>) -> Vec<Tile3D> {
         self.tiles
             .iter()
-            .map(|tile| {
-                let shape = tile_shape(tile.kind);
-                let poly =
-                    snapping::build_polyhedron(&shape).expect("shape should build a polyhedron");
-                Tile3D {
-                    id: tile.id,
-                    pos: tile.pos,
-                    rotation: tile.rotation,
-                    poly,
-                }
+            .map(|tile| Tile3D {
+                id: tile.id,
+                pos: tile.pose.pos,
+                rotation: tile.pose.rotation,
+                poly: polyhedra[&tile.kind].clone(),
             })
             .collect()
+    }
+}
+
+/// One polyhedron for each kind of tile, however many tiles there are of it.
+fn polyhedra() -> HashMap<ShapeKind, Polyhedron> {
+    ShapeKind::ALL
+        .into_iter()
+        .map(|kind| {
+            let poly = snapping::build_polyhedron(&tile_shape(kind))
+                .expect("every kind of tile is a polyhedron");
+            (kind, poly)
+        })
+        .collect()
+}
+
+/// A pyramid at the origin with a cube beside it.
+fn initial() -> Board {
+    let at = |x| Pose {
+        pos: Vec3::new(x, TILE_Y, 0.0),
+        rotation: Quat::IDENTITY,
+    };
+    let tile = |id, kind, pose| Tile { id, kind, pose };
+    Board {
+        tiles: vec![
+            tile(0, ShapeKind::Pyramid, at(0.0)),
+            tile(1, ShapeKind::Cube, at(1.2)),
+        ],
+        next_id: 2,
     }
 }
 
@@ -165,78 +174,75 @@ fn anchored_at_center(spec: DragSpec<Board>) -> DragSpec<Board> {
     })
 }
 
-/// A parameter of the tile `id`.
-fn tile_param(id: u32, get: fn(&Tile) -> f32, set: fn(&mut Tile, f32)) -> Param<Board> {
+/// The yaw of a pose, which is the only way a tile turns while it is dragged.
+fn yaw() -> Param<Pose> {
     Param::new(
-        move |board: &Board| get(board.tile(id)),
-        move |board: &mut Board, value| set(board.tile_mut(id), value),
-    )
-}
-
-/// Get the yaw (Y) component of the tile's Euler rotation.
-fn get_yaw(tile: &Tile) -> f32 {
-    tile.rotation.to_euler(EulerRot::YXZ).0
-}
-/// Set the yaw (Y) component of the tile's Euler rotation.
-fn set_yaw(tile: &mut Tile, value: f32) {
-    let (_, pitch, roll) = tile.rotation.to_euler(EulerRot::YXZ);
-    tile.rotation = Quat::from_euler(EulerRot::YXZ, value, pitch, roll);
-}
-
-/// The drag of a tile: snap face-to-face, drop on the bin to delete, or follow the
-/// pointer freely on the ground plane when far from any snap.
-fn tile_spec(board: &Board, id: u32) -> DragSpec<Board> {
-    let tile = board.tile(id);
-    let dragged_shape = tile_shape(tile.kind);
-    let dragged_poly = snapping::build_polyhedron(&dragged_shape)
-        .expect("dragged shape should build a polyhedron");
-    let tiles_3d = board.to_tile3d();
-    let snaps = snapping::compute_snaps_3d(&dragged_poly, &tiles_3d, Some(id));
-    let mut branches: Vec<DragSpec<Board>> = snaps
-        .into_iter()
-        .map(|snap| state(board.snapped(id, snap)))
-        .collect();
-    branches.push(drop_target(TRASH, board.without(id)));
-
-    // Build a no-overlap constraint using 3D intersection testing
-    let other_tiles_3d: Vec<Tile3D> = tiles_3d.iter().filter(|t| t.id != id).cloned().collect();
-    let no_overlap = Constraint::new(move |state: &Board| {
-        let t = state.tile(id);
-        let t_shape = tile_shape(t.kind);
-        let Some(t_poly) = snapping::build_polyhedron(&t_shape) else {
-            return 0.0;
-        };
-        let overlaps = snapping::overlaps_any_3d(&t_poly, t.pos, t.rotation, &other_tiles_3d, None);
-        if overlaps { 100.0 } else { 0.0 }
-    });
-
-    // Vary only x, z, and yaw on the ground plane — pitch and roll stay at zero so tiles
-    // don't spin wildly. The drag space is the XZ plane, so the pointer only moves in 2D.
-    let free = vary_constrained(
-        board.clone(),
-        [
-            tile_param(id, |tile| tile.pos.x, |tile, x| tile.pos.x = x),
-            tile_param(id, |tile| tile.pos.z, |tile, z| tile.pos.z = z),
-            tile_param(id, get_yaw, set_yaw).with_scale(360.0),
-        ],
-        no_overlap,
-    );
-    let node = tile_id(id);
-    anchored_at_center(closest(branches).when_far(free, SNAP_RANGE)).change_result(
-        move |mut frame| {
-            if let Some(dragged) = frame.view.get_mut(&node) {
-                // Lift the dragged tile above its base Y position by LIFT.
-                dragged.transform.translation.y = TILE_Y + LIFT;
-            }
-            frame
+        |pose: &Pose| pose.rotation.to_euler(EulerRot::YXZ).0,
+        |pose: &mut Pose, value| {
+            let (_, pitch, roll) = pose.rotation.to_euler(EulerRot::YXZ);
+            pose.rotation = Quat::from_euler(EulerRot::YXZ, value, pitch, roll);
         },
     )
+    .with_scale(360.0)
+}
+
+/// The drag of a tile: its pose snaps face-to-face, it is dropped on the bin to delete it, or it
+/// follows the pointer freely on the ground plane when far from any snap.
+fn tile_spec(board: &Board, id: u32) -> DragSpec<Board> {
+    let tile = board.tile(id);
+    let (start, polyhedra) = (tile.pose, polyhedra());
+    let poly = polyhedra[&tile.kind].clone();
+    let tiles = board.tiles_3d(&polyhedra);
+    let snaps = snapping::compute_snaps_3d(&poly, &tiles, Some(id));
+    let others: Vec<Tile3D> = tiles.into_iter().filter(|other| other.id != id).collect();
+
+    let no_overlap = Constraint::new(move |pose: &Pose| {
+        if snapping::overlaps_any_3d(&poly, pose.pos, pose.rotation, &others, None) {
+            100.0
+        } else {
+            0.0
+        }
+    });
+    // Pitch and roll stay at zero so tiles don't spin wildly.
+    let free = vary_constrained(
+        start,
+        [param!(Pose, pos.x), param!(Pose, pos.z), yaw()],
+        no_overlap,
+    );
+    let pose = Lens::new(
+        move |tile: &Option<Pose>| tile.unwrap_or(start),
+        |_, pose| Some(pose),
+    );
+    let branches = snaps
+        .into_iter()
+        .map(|snap| {
+            state(Some(Pose {
+                pos: snap.pos,
+                rotation: snap.rotation,
+            }))
+        })
+        .chain([drop_target(TRASH, None)])
+        .collect::<Vec<_>>();
+    let tile = Lens::new(
+        move |board: &Board| Some(board.tile(id).pose),
+        move |board: &Board, pose| board.with_tile(id, pose),
+    );
+    let node = tile_id(id);
+    anchored_at_center(substate(
+        tile,
+        closest(branches).when_far(substate(pose, free), SNAP_RANGE),
+    ))
+    .change_result(move |mut frame| {
+        if let Some(dragged) = frame.view.get_mut(&node) {
+            dragged.transform.translation.y = TILE_Y + LIFT;
+        }
+        frame
+    })
 }
 
 // ---------------------------------------------------------------------------------------------
 // View
 // ---------------------------------------------------------------------------------------------
-
 const TILE_Y: f32 = 0.3;
 
 fn tile_id(id: u32) -> String {
@@ -252,7 +258,7 @@ fn fill(kind: ShapeKind) -> Color {
     }
 }
 
-/// The 3D mesh for a tile kind — a true low-poly polyhedron.
+/// The 3D mesh for a tile kind - a true low-poly polyhedron.
 fn tile_shape(kind: ShapeKind) -> Shape {
     let detail = ShapeDetail::Low;
     match kind {
@@ -318,13 +324,13 @@ fn view(board: &Board) -> View<Board> {
     );
 
     // Palette items
-    for kind in ShapeKind::all() {
+    for kind in ShapeKind::ALL {
         let (created, id) = board.with_new(kind, palette_position(kind));
         view.push(
             tile_node(format!("palette-{kind:?}"), kind)
                 .at(palette_position(kind))
                 .draggable(move || switch_to_state_and_follow(created.clone(), tile_id(id)))
-                .in_space(DragSpace::plane(Vec3::ZERO, Dir3::Y)),
+                .in_space(DragSpace::screen()),
         );
     }
 
@@ -335,10 +341,10 @@ fn view(board: &Board) -> View<Board> {
         let kind = tile.kind;
         view.push(
             tile_node(tile_id(id), kind)
-                .at(tile.pos)
-                .with_rotation(tile.rotation)
+                .at(tile.pose.pos)
+                .with_rotation(tile.pose.rotation)
                 .draggable(move || tile_spec(&snapshot, id))
-                .in_space(DragSpace::plane(Vec3::ZERO, Dir3::Y)),
+                .in_space(DragSpace::screen()),
         );
     }
 
@@ -365,54 +371,19 @@ fn spawn_tile_colliders(mut commands: Commands, tiles: Query<(Entity, &Name), Wi
 
 /// Run this example. Called by the WASM runner.
 pub fn run(app: &mut App) {
-    // A pyramid at the origin with a cube snapped nearby.
-    let pyramid = Tile {
-        id: 0,
-        kind: ShapeKind::Pyramid,
-        pos: Vec3::new(0.0, TILE_Y, 0.0),
-        rotation: Quat::IDENTITY,
-    };
-    let pyramid_shape = tile_shape(ShapeKind::Pyramid);
-    let pyramid_poly = snapping::build_polyhedron(&pyramid_shape).unwrap();
-    let cube_shape = tile_shape(ShapeKind::Cube);
-    let cube_poly = snapping::build_polyhedron(&cube_shape).unwrap();
-    let tiles_3d = vec![Tile3D {
-        id: 0,
-        pos: pyramid.pos,
-        rotation: pyramid.rotation,
-        poly: pyramid_poly,
-    }];
-    let snaps = snapping::compute_snaps_3d(&cube_poly, &tiles_3d, None);
-    let cube_snap = snaps.first().copied().unwrap_or(Snap3D {
-        pos: Vec3::new(1.2, TILE_Y, 0.0),
-        rotation: Quat::IDENTITY,
-        face_normal: Dir3::Y,
-    });
-    let board = Board {
-        tiles: vec![
-            pyramid,
-            Tile {
-                id: 1,
-                kind: ShapeKind::Cube,
-                pos: cube_snap.pos,
-                rotation: cube_snap.rotation,
-            },
-        ],
-        next_id: 2,
-    };
     let target = Vec3::new(-2.6, 0.0, 0.2);
     app.add_plugins(common::default_plugins("tactile_tessellations_3d"))
         .add_plugins(PhysicsPlugins::default())
-        .add_plugins(DraggablePlugin::new(board, view))
+        .add_plugins(DraggablePlugin::new(initial(), view))
         .add_systems(Startup, spawn_tile_colliders)
         .add_plugins(ScriptedDragPlugin::straight(
             palette_position(ShapeKind::Pyramid).xz(),
             target.xz(),
         ))
         .add_plugins(
-            AutoScreenshotPlugin::new("screenshot_tactile_tessellations_3d.webp")
+            AutoScreenshotPlugin::new("screenshot_tactile_tessellations_3d.gif")
                 .with_title("tactile_tessellations_3d")
-                .with_description("3D low-poly polyhedra with face-to-face snapping"),
+                .with_description("substate: one tile's pose snaps face-to-face"),
         )
         .add_systems(Startup, |mut commands: Commands| {
             spawn_scene(&mut commands);
@@ -455,269 +426,102 @@ fn spawn_scene(commands: &mut Commands) {
 }
 
 fn main() {
-    // A pyramid at the origin with a cube snapped nearby.
-    let pyramid = Tile {
-        id: 0,
-        kind: ShapeKind::Pyramid,
-        pos: Vec3::new(0.0, TILE_Y, 0.0),
-        rotation: Quat::IDENTITY,
-    };
-    let pyramid_shape = tile_shape(ShapeKind::Pyramid);
-    let pyramid_poly = snapping::build_polyhedron(&pyramid_shape).unwrap();
-    let cube_shape = tile_shape(ShapeKind::Cube);
-    let cube_poly = snapping::build_polyhedron(&cube_shape).unwrap();
-    let tiles_3d = vec![Tile3D {
-        id: 0,
-        pos: pyramid.pos,
-        rotation: pyramid.rotation,
-        poly: pyramid_poly,
-    }];
-    let snaps = snapping::compute_snaps_3d(&cube_poly, &tiles_3d, None);
-    let cube_snap = snaps.first().copied().unwrap_or(Snap3D {
-        pos: Vec3::new(1.2, TILE_Y, 0.0),
-        rotation: Quat::IDENTITY,
-        face_normal: Dir3::Y,
-    });
-    let board = Board {
-        tiles: vec![
-            pyramid,
-            Tile {
-                id: 1,
-                kind: ShapeKind::Cube,
-                pos: cube_snap.pos,
-                rotation: cube_snap.rotation,
-            },
-        ],
-        next_id: 2,
-    };
-    let target = Vec3::new(-2.6, 0.0, 0.2);
-    App::new()
-        .add_plugins(common::default_plugins("tactile_tessellations_3d"))
-        .add_plugins(PhysicsPlugins::default())
-        .add_plugins(DraggablePlugin::new(board, view))
-        .add_systems(Startup, spawn_tile_colliders)
-        .add_plugins(ScriptedDragPlugin::straight(
-            palette_position(ShapeKind::Pyramid).xz(),
-            target.xz(),
-        ))
-        .add_plugins(
-            AutoScreenshotPlugin::new("screenshot_tactile_tessellations_3d.webp")
-                .with_title("tactile_tessellations_3d")
-                .with_description("3D low-poly polyhedra with face-to-face snapping"),
-        )
-        .add_systems(Startup, |mut commands: Commands| {
-            spawn_scene(&mut commands);
-        })
-        .run();
+    let mut app = App::new();
+    run(&mut app);
+    app.run();
 }
 
 #[cfg(test)]
 mod tests {
+    use bevy_composable_dragging::{DragContext, Pointer};
+
     use super::*;
 
-    fn tile(id: u32, kind: ShapeKind, pos: Vec3, rotation: Quat) -> Tile {
-        Tile {
-            id,
-            kind,
-            pos,
-            rotation,
-        }
-    }
-
-    fn tile3d(id: u32, kind: ShapeKind, pos: Vec3, rotation: Quat) -> Tile3D {
-        let shape = tile_shape(kind);
-        let poly = snapping::build_polyhedron(&shape).expect("shape should build");
-        Tile3D {
-            id,
-            pos,
-            rotation,
-            poly,
-        }
+    fn drag(board: &Board, id: u32, pointer: Vec3) -> bevy_composable_dragging::Frame<Board> {
+        let context =
+            DragContext::new(view, tile_id(id).into(), board.clone()).with_space(DragSpace::Screen);
+        tile_spec(board, id).compile(&context)(Pointer::at(pointer))
     }
 
     #[test]
-    fn all_shapes_build_polyhedra() {
-        for kind in ShapeKind::all() {
-            let shape = tile_shape(kind);
-            let poly = snapping::build_polyhedron(&shape)
-                .expect(&format!("{kind:?} should build a polyhedron"));
-            assert!(!poly.faces.is_empty(), "{kind:?} should have faces");
-        }
+    fn every_kind_has_one_polyhedron_with_faces() {
+        let polyhedra = polyhedra();
+        assert_eq!(polyhedra.len(), ShapeKind::ALL.len());
+        assert!(polyhedra.values().all(|poly| !poly.faces.is_empty()));
     }
 
     #[test]
-    fn cube_snaps_to_cube_face_to_face() {
-        let cube = tile3d(
-            0,
-            ShapeKind::Cube,
-            Vec3::new(0.0, TILE_Y, 0.0),
-            Quat::IDENTITY,
-        );
-        let cube_shape = tile_shape(ShapeKind::Cube);
-        let cube_poly = snapping::build_polyhedron(&cube_shape).unwrap();
-        let snaps = snapping::compute_snaps_3d(&cube_poly, &[cube], None);
-        assert!(!snaps.is_empty(), "cube should snap to cube");
-        for snap in &snaps {
-            assert!(
-                snap.face_normal.length() > 0.9,
-                "face normal should be unit length"
-            );
-        }
+    fn the_start_board_has_a_cube_beside_a_pyramid() {
+        let board = initial();
+        assert_eq!(board.tiles.len(), 2);
+        let polyhedra = polyhedra();
+        let tiles = board.tiles_3d(&polyhedra);
+        let cube = &board.tiles[1];
+        assert!(!snapping::overlaps_any_3d(
+            &polyhedra[&cube.kind],
+            cube.pose.pos,
+            cube.pose.rotation,
+            &tiles[..1],
+            None,
+        ));
     }
 
     #[test]
-    fn every_shape_kind_snaps_to_every_other_kind() {
-        let kinds = ShapeKind::all();
-        for &kind_a in &kinds {
-            let tile_a = tile3d(0, kind_a, Vec3::new(0.0, TILE_Y, 0.0), Quat::IDENTITY);
-            for &kind_b in &kinds {
-                let shape_b = tile_shape(kind_b);
-                let poly_b = snapping::build_polyhedron(&shape_b).unwrap();
-                let snaps = snapping::compute_snaps_3d(&poly_b, &[tile_a.clone()], None);
-                // Snaps are only produced when face vertex counts match.
-                // Some shape pairs may not have matching faces, which is expected.
-                // Verify that when snaps exist, they are valid.
-                for snap in &snaps {
-                    assert!(
-                        snap.face_normal.length() > 0.9,
-                        "{kind_b:?} → {kind_a:?}: invalid face normal at snap {snap:?}"
-                    );
-                }
-            }
-        }
+    fn dragging_a_tile_changes_only_its_own_pose() {
+        let board = initial();
+        let far = Vec3::new(-4.0, TILE_Y, -4.0);
+        let frame = drag(&board, 1, far);
+        assert_eq!(frame.drop_state.tiles.len(), 2);
+        assert_eq!(frame.drop_state.tiles[0], board.tiles[0]);
+        assert_eq!(frame.drop_state.tiles[1].kind, board.tiles[1].kind);
+        assert_ne!(frame.drop_state.tiles[1].pose, board.tiles[1].pose);
+        assert!((frame.drop_state.tiles[1].pose.pos.y - board.tiles[1].pose.pos.y).abs() < 1e-4);
     }
 
     #[test]
-    fn dropping_on_the_bin_deletes_the_tile() {
-        let board = Board {
-            tiles: vec![tile(
-                0,
-                ShapeKind::Cube,
-                Vec3::new(5.3, TILE_Y, 5.5),
-                Quat::IDENTITY,
-            )],
-            next_id: 1,
-        };
-        assert_eq!(board.without(0).tiles.len(), 0);
-        assert_eq!(board.with_new(ShapeKind::Tetrahedron, Vec3::ZERO).1, 1);
+    fn the_other_tiles_stay_draggable_while_one_is_dragged() {
+        let board = initial();
+        let frame = drag(&board, 1, Vec3::new(-4.0, TILE_Y, -4.0));
+        assert!(frame.view.get(&tile_id(0)).unwrap().drag.is_some());
+        assert!(frame.view.get(&tile_id(1)).unwrap().drag.is_some());
     }
 
     #[test]
-    fn the_view_places_tiles_at_correct_height() {
-        let board = Board {
-            tiles: vec![tile(
-                0,
-                ShapeKind::Cube,
-                Vec3::new(0.0, TILE_Y, 0.0),
-                Quat::IDENTITY,
-            )],
-            next_id: 1,
-        };
+    fn a_tile_never_comes_to_rest_inside_another() {
+        let board = initial();
+        let polyhedra = polyhedra();
+        let others = board.tiles_3d(&polyhedra);
+        let pyramid = board.tiles[0].pose.pos;
+        let frame = drag(&board, 1, pyramid + Vec3::new(0.05, 0.0, 0.05));
+        let pose = frame.drop_state.tile(1).pose;
+        assert!(!snapping::overlaps_any_3d(
+            &polyhedra[&ShapeKind::Cube],
+            pose.pos,
+            pose.rotation,
+            &others[..1],
+            None,
+        ));
+    }
+
+    #[test]
+    fn dropping_a_tile_on_the_bin_deletes_only_that_tile() {
+        let board = initial();
+        let frame = drag(&board, 1, Vec3::new(5.3, 0.225, 5.5));
+        assert_eq!(frame.drop_state.tiles, vec![board.tiles[0].clone()]);
+    }
+
+    #[test]
+    fn a_new_tile_gets_the_next_id() {
+        let board = initial();
+        assert_eq!(board.with_new(ShapeKind::Star, Vec3::ZERO).1, board.next_id);
+    }
+
+    #[test]
+    fn the_view_places_tiles_at_their_pose() {
+        let board = initial();
         let view = view(&board);
-        let tile_node = view.get(&tile_id(0)).unwrap();
-        assert!((tile_node.transform.translation.y - TILE_Y).abs() < 1e-4);
-        assert_eq!(
-            tile_node.drag_space,
-            Some(DragSpace::plane(Vec3::ZERO, Dir3::Y))
-        );
-    }
-
-    #[test]
-    fn snapped_faces_have_opposed_normals() {
-        let cube = tile3d(
-            0,
-            ShapeKind::Cube,
-            Vec3::new(0.0, TILE_Y, 0.0),
-            Quat::IDENTITY,
-        );
-        let cube_shape = tile_shape(ShapeKind::Cube);
-        let cube_poly = snapping::build_polyhedron(&cube_shape).unwrap();
-        let snaps = snapping::compute_snaps_3d(&cube_poly, &[cube], None);
-        assert!(!snaps.is_empty());
-
-        for snap in &snaps {
-            assert!(
-                snap.face_normal.length() > 0.9,
-                "face normal should be unit length"
-            );
-        }
-    }
-
-    #[test]
-    fn hovering_near_a_pyramid_face_produces_valid_snaps() {
-        use bevy_composable_dragging::{DragContext, Pointer};
-
-        let pyramid = tile(
-            0,
-            ShapeKind::Pyramid,
-            Vec3::new(0.0, TILE_Y, 0.0),
-            Quat::IDENTITY,
-        );
-        let cube = tile(
-            1,
-            ShapeKind::Cube,
-            Vec3::new(10.0, TILE_Y, 10.0),
-            Quat::IDENTITY,
-        );
-        let board = Board {
-            tiles: vec![pyramid.clone(), cube],
-            next_id: 2,
-        };
-
-        let spec = tile_spec(&board, 1);
-        let context = DragContext::new(view, tile_id(1).into(), board.clone())
-            .with_space(DragSpace::plane(Vec3::ZERO, Dir3::Y));
-        let mut behavior = spec.compile(&context);
-
-        // Hover near the pyramid
-        let pointer = Pointer::at(Vec3::new(1.0, 0.0, 0.5));
-        let frame = behavior(pointer);
-
-        // The drop state should be finite and reasonable
-        let drop_tile = frame.drop_state.tile(1);
-        assert!(drop_tile.pos.is_finite(), "drop position should be finite");
-        assert!(
-            drop_tile.rotation.is_finite(),
-            "drop rotation should be finite"
-        );
-    }
-
-    #[test]
-    fn snapped_tile_has_full_3d_transform() {
-        let cube1 = tile(
-            0,
-            ShapeKind::Cube,
-            Vec3::new(0.0, TILE_Y, 0.0),
-            Quat::IDENTITY,
-        );
-        let cube2 = tile(
-            1,
-            ShapeKind::Cube,
-            Vec3::new(10.0, TILE_Y, 10.0),
-            Quat::IDENTITY,
-        );
-        let board = Board {
-            tiles: vec![cube1.clone(), cube2],
-            next_id: 2,
-        };
-
-        let cube1_shape = tile_shape(ShapeKind::Cube);
-        let cube1_poly = snapping::build_polyhedron(&cube1_shape).unwrap();
-        let cube2_shape = tile_shape(ShapeKind::Cube);
-        let cube2_poly = snapping::build_polyhedron(&cube2_shape).unwrap();
-        let tiles_3d = vec![Tile3D {
-            id: 0,
-            pos: cube1.pos,
-            rotation: cube1.rotation,
-            poly: cube1_poly,
-        }];
-        let snaps = snapping::compute_snaps_3d(&cube2_poly, &tiles_3d, None);
-        assert!(!snaps.is_empty());
-
-        let snap = snaps[0];
-        let snapped_board = board.snapped(1, snap);
-        let snapped_tile = snapped_board.tile(1);
-        assert_eq!(snapped_tile.pos, snap.pos);
-        assert_eq!(snapped_tile.rotation, snap.rotation);
+        let node = view.get(&tile_id(0)).unwrap();
+        assert!((node.transform.translation.y - TILE_Y).abs() < 1e-4);
+        assert_eq!(node.drag_space, Some(DragSpace::Screen));
     }
 }

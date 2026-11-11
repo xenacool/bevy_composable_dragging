@@ -48,13 +48,13 @@ example `cargo run --example gradient_hanoi_3d --features shapes-3d`.
 
 ## Demos in examples/
 
-![cozy_castle](https://raw.githubusercontent.com/xenacool/bevy_composable_dragging/main/screenshots/screenshot_cozy_castle.webp)
+![cozy_castle](https://raw.githubusercontent.com/xenacool/bevy_composable_dragging/main/screenshots/screenshot_cozy_castle.gif)
 
 `cozy_castle`: pieces are chosen from a radial menu and dragged onto one another, and every
 position along the drag is evaluated speculatively, so the rooms of the first floor change while
 the pointer is still down. An archway dropped on a swept wall carves a hole in it.
 
-![kart_racer_editor](https://raw.githubusercontent.com/xenacool/bevy_composable_dragging/main/screenshots/screenshot_kart_racer_editor.webp)
+![kart_racer_editor](https://raw.githubusercontent.com/xenacool/bevy_composable_dragging/main/screenshots/screenshot_kart_racer_editor.gif)
 
 `kart_racer_editor`: a track editor whose sweep road is scaled, whose curve is pulled by its
 handles while the road follows, and whose tools are picked from a radial menu.
@@ -63,17 +63,17 @@ handles while the road follows, and whose tools are picked from a radial menu.
 
 | | | |
 |---|---|---|
-| ![toggle](https://raw.githubusercontent.com/xenacool/bevy_composable_dragging/main/screenshots/screenshot_toggle.webp) | ![three_way](https://raw.githubusercontent.com/xenacool/bevy_composable_dragging/main/screenshots/screenshot_three_way.webp) | ![reorder_list](https://raw.githubusercontent.com/xenacool/bevy_composable_dragging/main/screenshots/screenshot_reorder_list.webp) |
+| ![toggle](https://raw.githubusercontent.com/xenacool/bevy_composable_dragging/main/screenshots/screenshot_toggle.gif) | ![three_way](https://raw.githubusercontent.com/xenacool/bevy_composable_dragging/main/screenshots/screenshot_three_way.gif) | ![reorder_list](https://raw.githubusercontent.com/xenacool/bevy_composable_dragging/main/screenshots/screenshot_reorder_list.gif) |
 | `toggle`: `between` | `three_way`: `between` over three states | `reorder_list`: `closest` + floating |
-| ![ring_of_beads](https://raw.githubusercontent.com/xenacool/bevy_composable_dragging/main/screenshots/screenshot_ring_of_beads.webp) | ![slider](https://raw.githubusercontent.com/xenacool/bevy_composable_dragging/main/screenshots/screenshot_slider.webp) | ![clock](https://raw.githubusercontent.com/xenacool/bevy_composable_dragging/main/screenshots/screenshot_clock.webp) |
+| ![ring_of_beads](https://raw.githubusercontent.com/xenacool/bevy_composable_dragging/main/screenshots/screenshot_ring_of_beads.gif) | ![slider](https://raw.githubusercontent.com/xenacool/bevy_composable_dragging/main/screenshots/screenshot_slider.gif) | ![clock](https://raw.githubusercontent.com/xenacool/bevy_composable_dragging/main/screenshots/screenshot_clock.gif) |
 | `ring_of_beads`: `closest` on a ring | `slider`: `vary` with a range constraint | `clock`: `vary` one angle |
-| ![scheduler](https://raw.githubusercontent.com/xenacool/bevy_composable_dragging/main/screenshots/screenshot_scheduler.webp) | ![lists_in_lists](https://raw.githubusercontent.com/xenacool/bevy_composable_dragging/main/screenshots/screenshot_lists_in_lists.webp) | ![tessellations](https://raw.githubusercontent.com/xenacool/bevy_composable_dragging/main/screenshots/screenshot_tessellations.webp) |
+| ![scheduler](https://raw.githubusercontent.com/xenacool/bevy_composable_dragging/main/screenshots/screenshot_scheduler.gif) | ![lists_in_lists](https://raw.githubusercontent.com/xenacool/bevy_composable_dragging/main/screenshots/screenshot_lists_in_lists.gif) | ![tessellations](https://raw.githubusercontent.com/xenacool/bevy_composable_dragging/main/screenshots/screenshot_tessellations.gif) |
 | `scheduler`: `closest` + `vary` | `lists_in_lists`: rows nested to any depth, `when_far` snap-or-free, `with_overlay` insertion marker | `tessellations`: toolbar and trash bin |
-| ![gradient_hanoi_3d](https://raw.githubusercontent.com/xenacool/bevy_composable_dragging/main/screenshots/screenshot_gradient_hanoi_3d.webp) | ![gradient_kanban_2d](https://raw.githubusercontent.com/xenacool/bevy_composable_dragging/main/screenshots/screenshot_gradient_kanban_2d.webp) | ![hello](https://raw.githubusercontent.com/xenacool/bevy_composable_dragging/main/screenshots/screenshot_hello.webp) |
+| ![gradient_hanoi_3d](https://raw.githubusercontent.com/xenacool/bevy_composable_dragging/main/screenshots/screenshot_gradient_hanoi_3d.gif) | ![gradient_kanban_2d](https://raw.githubusercontent.com/xenacool/bevy_composable_dragging/main/screenshots/screenshot_gradient_kanban_2d.gif) | ![hello](https://raw.githubusercontent.com/xenacool/bevy_composable_dragging/main/screenshots/screenshot_hello.gif) |
 | `gradient_hanoi_3d`: `shapes-3d` | `gradient_kanban_2d`: `shapes-2d` | `hello`: minimal `state` example |
-| ![chain_of_cells](https://raw.githubusercontent.com/xenacool/bevy_composable_dragging/main/screenshots/screenshot_chain_of_cells.webp) | ![blend_square](https://raw.githubusercontent.com/xenacool/bevy_composable_dragging/main/screenshots/screenshot_blend_square.webp) | ![tactile_tessellations](https://raw.githubusercontent.com/xenacool/bevy_composable_dragging/main/screenshots/screenshot_tactile_tessellations.webp) |
+| ![chain_of_cells](https://raw.githubusercontent.com/xenacool/bevy_composable_dragging/main/screenshots/screenshot_chain_of_cells.gif) | ![blend_square](https://raw.githubusercontent.com/xenacool/bevy_composable_dragging/main/screenshots/screenshot_blend_square.gif) | ![tactile_tessellations](https://raw.githubusercontent.com/xenacool/bevy_composable_dragging/main/screenshots/screenshot_tactile_tessellations.gif) |
 | `chain_of_cells`: `with_chaining`, overlay underline, drop transition | `blend_square`: `between_with` natural neighbor and sharpness | `tactile_tessellations`: edge-to-edge snaps with rotation |
-| ![gizmo_3d](https://raw.githubusercontent.com/xenacool/bevy_composable_dragging/main/screenshots/screenshot_gizmo_3d.webp) | ![physics_lab](https://raw.githubusercontent.com/xenacool/bevy_composable_dragging/main/screenshots/screenshot_physics_lab.webp) | |
+| ![gizmo_3d](https://raw.githubusercontent.com/xenacool/bevy_composable_dragging/main/screenshots/screenshot_gizmo_3d.gif) | ![physics_lab](https://raw.githubusercontent.com/xenacool/bevy_composable_dragging/main/screenshots/screenshot_physics_lab.gif) | |
 | `gizmo_3d`: translate, rotate and scale gizmos in 3D drag spaces | `physics_lab`: 3D physics shapes dragged onto a grid, simulated with avian | |
 
 ## Credits

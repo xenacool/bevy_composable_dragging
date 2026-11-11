@@ -7,7 +7,7 @@
 use std::collections::HashSet;
 
 use bevy::prelude::*;
-use bevy_composable_dragging::ops::{closest, drop_target, state, switch_to_state_and_follow};
+use bevy_composable_dragging::ops::{closest, drop_target, state, substate, switch_to_state_and_follow, Lens};
 use bevy_composable_dragging::{DragSpec, DraggablePlugin, View, ViewNode};
 
 mod common;
@@ -67,19 +67,8 @@ fn kind_node(id: String, kind: usize) -> ViewNode<Board> {
     node.with_color(tile_color(kind))
 }
 
-fn without(board: &Board, id: usize) -> Board {
-    let mut board = board.clone();
-    board.tiles.retain(|tile| tile.id != id);
-    board
-}
-
-fn in_cell(board: &Board, id: usize, cell: usize) -> Board {
-    let mut board = board.clone();
-    if let Some(tile) = board.tiles.iter_mut().find(|tile| tile.id == id) {
-        tile.cell = Some(cell);
-    }
-    board
-}
+/// The isolated state of one tile: which cell it sits in, or None if dropped on the bin.
+type TileCell = Option<usize>;
 
 /// Drag a tile into any free cell, or into the bin to delete it.
 fn tile_spec(board: &Board, id: usize) -> DragSpec<Board> {
@@ -89,13 +78,36 @@ fn tile_spec(board: &Board, id: usize) -> DragSpec<Board> {
         .filter(|tile| tile.id != id)
         .filter_map(|tile| tile.cell)
         .collect();
-    let mut branches = vec![drop_target("bin", without(board, id))];
-    branches.extend(
-        (0..COLUMNS * ROWS)
-            .filter(|cell| !occupied.contains(cell))
-            .map(|cell| state(in_cell(board, id, cell))),
+    let tile = Lens::new(
+        move |b: &Board| {
+            b.tiles.iter().find(|t| t.id == id).and_then(|t| t.cell)
+        },
+        move |b: &Board, cell: TileCell| {
+            match cell {
+                Some(cell) => {
+                    let mut b = b.clone();
+                    if let Some(tile) = b.tiles.iter_mut().find(|t| t.id == id) {
+                        tile.cell = Some(cell);
+                    }
+                    b
+                }
+                None => {
+                    let mut b = b.clone();
+                    b.tiles.retain(|t| t.id != id);
+                    b
+                }
+            }
+        },
     );
-    closest(branches).with_floating().with_snap_radius(SNAP)
+    let branches: Vec<_> = (0..COLUMNS * ROWS)
+        .filter(|cell| !occupied.contains(cell))
+        .map(|cell| state(Some(cell)))
+        .chain([drop_target("bin", None)])
+        .collect();
+    substate(
+        tile,
+        closest(branches).with_floating().with_snap_radius(SNAP),
+    )
 }
 
 fn view(board: &Board) -> View<Board> {
@@ -170,7 +182,7 @@ pub fn run(app: &mut App) {
             cell_position(13) + Vec2::new(0.4, 0.3),
         ))
         .add_plugins(
-            AutoScreenshotPlugin::new("screenshot_tessellations.webp")
+            AutoScreenshotPlugin::new("screenshot_tessellations.gif")
                 .with_title("tessellations")
                 .with_description("toolbar + bin")
                 .animation(600),
@@ -200,7 +212,7 @@ fn main() {
             cell_position(13) + Vec2::new(0.4, 0.3),
         ))
         .add_plugins(
-            AutoScreenshotPlugin::new("screenshot_tessellations.webp")
+            AutoScreenshotPlugin::new("screenshot_tessellations.gif")
                 .with_title("tessellations")
                 .with_description("toolbar + bin")
                 .animation(600),
