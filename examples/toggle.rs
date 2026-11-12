@@ -53,21 +53,7 @@ pub fn run(app: &mut App) {
 }
 
 fn main() {
-    App::new()
-        .add_plugins(common::default_plugins("toggle"))
-        .add_plugins(DraggablePlugin::new(Toggle::Off, view))
-        .add_plugins(ScriptedDragPlugin::straight(
-            Vec2::new(-0.9, 0.0),
-            Vec2::new(0.1, 0.0),
-        ))
-        .add_plugins(
-            AutoScreenshotPlugin::new("screenshot_toggle.gif")
-                .with_title("toggle")
-                .with_description("between: knob half way")
-                .animation(600),
-        )
-        .add_systems(Startup, |mut commands: Commands| {
-            common::spawn_cameras(&mut commands, 5.0);
-        })
-        .run();
+    let mut app = App::new();
+    run(&mut app);
+    app.run();
 }

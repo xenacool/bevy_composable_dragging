@@ -20,8 +20,10 @@ pub mod tour;
 #[cfg(test)]
 pub mod mouse;
 
-/// The default plugins with a 1280x720 window and synchronous shader compilation, so screenshots
-/// never capture a frame that is still compiling.
+/// The default plugins with synchronous shader compilation, so screenshots never capture a frame
+/// that is still compiling.
+///
+/// On desktop the window starts at 1280x720. On WASM the browser controls the size.
 pub fn default_plugins(title: &str) -> impl PluginGroup {
     DefaultPlugins
         .set(RenderPlugin {
@@ -31,6 +33,7 @@ pub fn default_plugins(title: &str) -> impl PluginGroup {
         .set(WindowPlugin {
             primary_window: Some(Window {
                 title: format!("bevy_composable_dragging: {title}"),
+                #[cfg(not(target_arch = "wasm32"))]
                 resolution: (1280, 720).into(),
                 ..default()
             }),
@@ -69,8 +72,11 @@ fn spawn_overlay_camera(commands: &mut Commands) {
     ));
 }
 
-/// Spawns an orthographic scene camera looking down the Z axis at the XY plane, showing
-/// `viewport_height` world units vertically.
+/// Spawns an orthographic scene camera looking down the Z axis at the XY plane.
+///
+/// The camera uses [`ScalingMode::AutoMin`] so it adapts to any window size:
+/// `viewport_height` sets the minimum vertical extent, and the camera zooms out
+/// for taller windows while keeping the aspect ratio.
 pub fn spawn_cameras(commands: &mut Commands, viewport_height: f32) {
     spawn_overlay_camera(commands);
     let layers = RenderLayers::from_layers(&[0, GIZMO_LAYER]);
@@ -83,15 +89,21 @@ pub fn spawn_cameras(commands: &mut Commands, viewport_height: f32) {
             ..default()
         },
         Projection::Orthographic(OrthographicProjection {
-            scaling_mode: ScalingMode::FixedVertical { viewport_height },
+            scaling_mode: ScalingMode::AutoMin {
+                min_width: viewport_height * 16.0 / 9.0,
+                min_height: viewport_height,
+            },
             ..OrthographicProjection::default_3d()
         }),
         Transform::from_xyz(0.0, 0.0, 10.0),
     ));
 }
 
-/// Spawns a `Camera2d` that shows `viewport_height` world units vertically, for scenes drawn
-/// with `Rendering::Flat`.
+/// Spawns a `Camera2d` for scenes drawn with `Rendering::Flat`.
+///
+/// The camera uses [`ScalingMode::AutoMin`] so it adapts to any window size:
+/// `viewport_height` sets the minimum vertical extent, and the camera zooms out
+/// for taller windows while keeping the aspect ratio.
 pub fn spawn_cameras_2d(commands: &mut Commands, viewport_height: f32) {
     spawn_overlay_camera(commands);
     let layers = RenderLayers::from_layers(&[0, GIZMO_LAYER]);
@@ -104,14 +116,20 @@ pub fn spawn_cameras_2d(commands: &mut Commands, viewport_height: f32) {
             ..default()
         },
         Projection::Orthographic(OrthographicProjection {
-            scaling_mode: ScalingMode::FixedVertical { viewport_height },
+            scaling_mode: ScalingMode::AutoMin {
+                min_width: viewport_height * 16.0 / 9.0,
+                min_height: viewport_height,
+            },
             ..OrthographicProjection::default_2d()
         }),
     ));
 }
 
-/// Spawns a `Camera2d` that draws the nodes on [`HUD_LAYER`] over the scene, showing
-/// `viewport_height` world units vertically with the origin in the middle of the screen.
+/// Spawns a `Camera2d` that draws the nodes on [`HUD_LAYER`] over the scene.
+///
+/// The camera uses [`ScalingMode::AutoMin`] so it adapts to any window size:
+/// `viewport_height` sets the minimum vertical extent, and the camera zooms out
+/// for taller windows while keeping the aspect ratio.
 ///
 /// It renders after the scene camera without clearing, and its order is higher, so presses on
 /// the HUD win over the scene below. Give the HUD nodes `ViewNode::flat` and
@@ -127,7 +145,10 @@ pub fn spawn_hud_camera(commands: &mut Commands, viewport_height: f32) {
             ..default()
         },
         Projection::Orthographic(OrthographicProjection {
-            scaling_mode: ScalingMode::FixedVertical { viewport_height },
+            scaling_mode: ScalingMode::AutoMin {
+                min_width: viewport_height * 16.0 / 9.0,
+                min_height: viewport_height,
+            },
             ..OrthographicProjection::default_2d()
         }),
     ));

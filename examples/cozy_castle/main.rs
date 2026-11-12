@@ -331,7 +331,8 @@ fn view(castle: &Castle) -> View<Castle> {
     for placed in &castle.placed {
         push_piece(&mut view, placed, castle);
     }
-    push_menu(&mut view, castle, &Layout::new(&castle.screen), &theme());
+    let layout = Layout::new(&castle.screen, theme());
+    push_menu(&mut view, castle, &layout, &theme());
     view
 }
 
@@ -513,17 +514,8 @@ pub fn run(app: &mut App) {
 
 fn main() {
     let mut app = App::new();
-    app.add_plugins(common::default_plugins("cozy_castle"));
-    castle(&mut app)
-        .add_systems(Startup, spawn_banner_camera)
-        .add_plugins(TourPlugin::new(tour))
-        .add_plugins(
-            AutoScreenshotPlugin::new("screenshot_cozy_castle.gif")
-                .with_title("cozy_castle")
-                .with_description("menu, stacks, arches")
-                .animation(MAX_FRAMES),
-        )
-        .run();
+    run(&mut app);
+    app.run();
 }
 
 #[cfg(test)]

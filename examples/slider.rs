@@ -69,21 +69,7 @@ pub fn run(app: &mut App) {
 }
 
 fn main() {
-    App::new()
-        .add_plugins(common::default_plugins("slider"))
-        .add_plugins(DraggablePlugin::new(Slider { value: 0.2 }, view))
-        .add_plugins(ScriptedDragPlugin::straight(
-            knob_position(0.2),
-            knob_position(0.7) + Vec2::new(0.0, 0.6),
-        ))
-        .add_plugins(
-            AutoScreenshotPlugin::new("screenshot_slider.gif")
-                .with_title("slider")
-                .with_description("vary + in_range")
-                .animation(600),
-        )
-        .add_systems(Startup, |mut commands: Commands| {
-            common::spawn_cameras(&mut commands, 5.0);
-        })
-        .run();
+    let mut app = App::new();
+    run(&mut app);
+    app.run();
 }

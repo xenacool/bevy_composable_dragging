@@ -83,21 +83,7 @@ pub fn run(app: &mut App) {
 }
 
 fn main() {
-    App::new()
-        .add_plugins(common::default_plugins("equal_constraint"))
-        .add_plugins(DraggablePlugin::new(State { a: 0.0, b: 0.0 }, view))
-        .add_plugins(ScriptedDragPlugin::straight(
-            knob_position(0.0, -SPACING),
-            knob_position(2.0, -SPACING) + Vec2::new(0.0, 0.5),
-        ))
-        .add_plugins(
-            AutoScreenshotPlugin::new("screenshot_equal_constraint.gif")
-                .with_title("equal constraint")
-                .with_description("two knobs locked together")
-                .animation(600),
-        )
-        .add_systems(Startup, |mut commands: Commands| {
-            common::spawn_cameras(&mut commands, 6.0);
-        })
-        .run();
+    let mut app = App::new();
+    run(&mut app);
+    app.run();
 }

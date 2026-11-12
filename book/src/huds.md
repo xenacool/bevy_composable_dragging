@@ -1,6 +1,6 @@
 # HUDs
 
-The `hud` module (behind the `gradmesh` feature) provides a heads-up display built from ordinary nodes. Elements are rounded signed distance fields — fills and borders drawn per pixel so edges stay crisp at any size.
+The `hud` module (behind the `gradmesh` feature) provides a heads-up display built from ordinary nodes. Elements are rounded signed distance fields -- fills and borders drawn per pixel so edges stay crisp at any size.
 
 ## Screen and Layout
 
@@ -79,8 +79,8 @@ ViewNode::sdf("panel", SdfShape::rect(Vec2::new(200.0, 100.0)).with_corner_radiu
 ```
 
 Available SDF shapes:
-- `rect(size).with_corner_radius(r)` — rounded rectangle
-- `ellipse(size)` — ellipse
+- `rect(size).with_corner_radius(r)` -- rounded rectangle
+- `ellipse(size)` -- ellipse
 
 ## Overshoot
 

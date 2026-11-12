@@ -9,6 +9,7 @@ src = "src"
 site-url = "/bevy_composable_dragging/"
 git-repository-url = "https://github.com/xenacool/bevy_composable_dragging"
 edit-url-template = "https://github.com/xenacool/bevy_composable_dragging/edit/main/book/{path}"
+additional-js = ["src/gallery-link.js"]
 
 [output.linkcheck]
 optional = true

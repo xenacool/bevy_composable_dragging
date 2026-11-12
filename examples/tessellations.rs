@@ -7,7 +7,9 @@
 use std::collections::HashSet;
 
 use bevy::prelude::*;
-use bevy_composable_dragging::ops::{closest, drop_target, state, substate, switch_to_state_and_follow, Lens};
+use bevy_composable_dragging::ops::{
+    Lens, closest, drop_target, state, substate, switch_to_state_and_follow,
+};
 use bevy_composable_dragging::{DragSpec, DraggablePlugin, View, ViewNode};
 
 mod common;
@@ -79,23 +81,19 @@ fn tile_spec(board: &Board, id: usize) -> DragSpec<Board> {
         .filter_map(|tile| tile.cell)
         .collect();
     let tile = Lens::new(
-        move |b: &Board| {
-            b.tiles.iter().find(|t| t.id == id).and_then(|t| t.cell)
-        },
-        move |b: &Board, cell: TileCell| {
-            match cell {
-                Some(cell) => {
-                    let mut b = b.clone();
-                    if let Some(tile) = b.tiles.iter_mut().find(|t| t.id == id) {
-                        tile.cell = Some(cell);
-                    }
-                    b
+        move |b: &Board| b.tiles.iter().find(|t| t.id == id).and_then(|t| t.cell),
+        move |b: &Board, cell: TileCell| match cell {
+            Some(cell) => {
+                let mut b = b.clone();
+                if let Some(tile) = b.tiles.iter_mut().find(|t| t.id == id) {
+                    tile.cell = Some(cell);
                 }
-                None => {
-                    let mut b = b.clone();
-                    b.tiles.retain(|t| t.id != id);
-                    b
-                }
+                b
+            }
+            None => {
+                let mut b = b.clone();
+                b.tiles.retain(|t| t.id != id);
+                b
             }
         },
     );
@@ -193,32 +191,7 @@ pub fn run(app: &mut App) {
 }
 
 fn main() {
-    let tiles = [(0, 0), (1, 1), (5, 2), (7, 0), (11, 1), (12, 2)]
-        .iter()
-        .enumerate()
-        .map(|(id, &(cell, kind))| Tile {
-            id,
-            kind,
-            cell: Some(cell),
-            position: Vec2::ZERO,
-        })
-        .collect();
-    let board = Board { tiles, next_id: 6 };
-    App::new()
-        .add_plugins(common::default_plugins("tessellations"))
-        .add_plugins(DraggablePlugin::new(board, view))
-        .add_plugins(ScriptedDragPlugin::straight(
-            tool_position(0),
-            cell_position(13) + Vec2::new(0.4, 0.3),
-        ))
-        .add_plugins(
-            AutoScreenshotPlugin::new("screenshot_tessellations.gif")
-                .with_title("tessellations")
-                .with_description("toolbar + bin")
-                .animation(600),
-        )
-        .add_systems(Startup, |mut commands: Commands| {
-            common::spawn_cameras(&mut commands, 7.0);
-        })
-        .run();
+    let mut app = App::new();
+    run(&mut app);
+    app.run();
 }

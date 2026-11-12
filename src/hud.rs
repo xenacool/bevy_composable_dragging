@@ -289,16 +289,24 @@ fn synced<S: HudHost>(state: &S, screen: Screen) -> Option<S> {
 pub struct Layout {
     size: Vec2,
     unit: f32,
+    theme: Theme,
 }
 
 impl Layout {
-    /// The layout of the HUD of `screen`.
+    /// The layout of the HUD of `screen` using the design values from `theme`.
     #[must_use]
-    pub fn new(screen: &Screen) -> Self {
+    pub fn new(screen: &Screen, theme: Theme) -> Self {
         Self {
             size: screen.hud,
-            unit: (screen.hud.x / REFERENCE_WIDTH).clamp(MIN_UNIT, 1.0),
+            unit: (screen.hud.x / theme.reference_width).clamp(theme.min_unit, 1.0),
+            theme,
         }
+    }
+
+    /// The theme this layout is based on.
+    #[must_use]
+    pub fn theme(&self) -> &Theme {
+        &self.theme
     }
 
     /// How much the HUD is scaled, from the smallest unit to one.
@@ -310,25 +318,25 @@ impl Layout {
     /// The gap kept free at the edges of the screen.
     #[must_use]
     pub fn margin(&self) -> f32 {
-        MARGIN * self.unit
+        self.theme.margin * self.unit
     }
 
     /// The radius of a petal.
     #[must_use]
     pub fn petal_radius(&self) -> f32 {
-        PETAL_RADIUS * self.unit
+        self.theme.petal_radius * self.unit
     }
 
     /// The radius of a hub.
     #[must_use]
     pub fn hub_radius(&self) -> f32 {
-        HUB_RADIUS * self.unit
+        self.theme.hub_radius * self.unit
     }
 
     /// How far above the element it edits a hub that has shrunk to a chip hovers.
     #[must_use]
     pub fn chip_lift(&self) -> f32 {
-        CHIP_LIFT * self.unit
+        self.theme.chip_lift * self.unit
     }
 
     /// Where a hub that has shrunk to a chip hovers over the element at `at`, which has handles
@@ -372,7 +380,7 @@ impl Layout {
     fn reach(&self) -> (Vec2, Vec2) {
         let inset = self.margin() + self.petal_radius();
         (
-            -self.size / 2.0 + Vec2::new(inset, inset + LABEL_ROOM * self.unit),
+            -self.size / 2.0 + Vec2::new(inset, inset + self.theme.label_room * self.unit),
             self.size / 2.0 - Vec2::splat(inset),
         )
     }
@@ -394,7 +402,7 @@ impl Layout {
 
     /// The free space kept between two petals, and between a petal and the hub.
     fn spacing(&self) -> f32 {
-        SPACING * self.unit
+        self.theme.spacing * self.unit
     }
 
     /// How far from `center` the farthest place a petal can be is.
@@ -437,7 +445,7 @@ impl Layout {
     /// onto the screen.
     #[must_use]
     pub fn fan_footprints(&self, center: Vec2, footprints: &[Footprint]) -> Fan {
-        let first = RING_RADIUS * self.unit;
+        let first = self.theme.ring_radius * self.unit;
         let mut toward = if center.length() > 1.0 {
             (-center).to_angle()
         } else {
@@ -730,6 +738,26 @@ pub struct Theme {
     pub overshoot: f32,
     /// How long a change of the HUD takes to settle, in seconds.
     pub tween_seconds: f32,
+    /// The radius of a petal, at full size.
+    pub petal_radius: f32,
+    /// The radius of a hub, at full size.
+    pub hub_radius: f32,
+    /// The radius of the ring petals fan out on, at full size.
+    pub ring_radius: f32,
+    /// The free space kept between two petals, and between a petal and the hub, at full size.
+    pub spacing: f32,
+    /// The room below a petal that its label needs, at full size.
+    pub label_room: f32,
+    /// How far above the element it edits a hub that has shrunk to a chip hovers, at full size.
+    pub chip_lift: f32,
+    /// How big a corner of a panel is, at full size.
+    pub panel_corner: f32,
+    /// The width of the HUD at which it is drawn at its full size. Narrower windows shrink it.
+    pub reference_width: f32,
+    /// The smallest scale of the HUD, so it stays legible in a narrow window.
+    pub min_unit: f32,
+    /// The gap kept free at the edges of the screen, in HUD units at full size.
+    pub margin: f32,
 }
 
 impl Default for Theme {
@@ -753,6 +781,16 @@ impl Theme {
             border_width: 2.5,
             overshoot: 0.12,
             tween_seconds: 0.32,
+            petal_radius: PETAL_RADIUS,
+            hub_radius: HUB_RADIUS,
+            ring_radius: RING_RADIUS,
+            spacing: SPACING,
+            label_room: LABEL_ROOM,
+            chip_lift: CHIP_LIFT,
+            panel_corner: PANEL_CORNER,
+            reference_width: REFERENCE_WIDTH,
+            min_unit: MIN_UNIT,
+            margin: MARGIN,
         }
     }
 
@@ -852,7 +890,7 @@ impl Theme {
         center: Vec2,
         layout: &Layout,
     ) -> [ViewNode<S>; 2] {
-        let corner = (PANEL_CORNER * layout.unit()).min(size.min_element() / 2.0);
+        let corner = (self.panel_corner * layout.unit()).min(size.min_element() / 2.0);
         [
             self.plate(id, size, corner, self.fill, center.extend(PANEL_DEPTH)),
             self.plate_border(
@@ -977,17 +1015,19 @@ mod tests {
 
     #[test]
     fn the_unit_shrinks_with_the_window_and_never_grows_or_vanishes() {
-        assert_eq!(Layout::new(&screen(2400.0)).unit(), 1.0);
-        assert_eq!(Layout::new(&screen(1280.0)).unit(), 1.0);
-        let narrow = Layout::new(&screen(800.0)).unit();
-        assert!((MIN_UNIT..1.0).contains(&narrow));
-        assert_eq!(Layout::new(&screen(100.0)).unit(), MIN_UNIT);
+        let theme = Theme::default();
+        assert_eq!(Layout::new(&screen(2400.0), theme).unit(), 1.0);
+        assert_eq!(Layout::new(&screen(1280.0), theme).unit(), 1.0);
+        let narrow = Layout::new(&screen(800.0), theme).unit();
+        assert!((theme.min_unit..1.0).contains(&narrow));
+        assert_eq!(Layout::new(&screen(100.0), theme).unit(), theme.min_unit);
     }
 
     #[test]
     fn the_anchors_stay_in_their_corners_whatever_the_window() {
+        let theme = Theme::default();
         for width in [480.0, 800.0, 1280.0, 2400.0] {
-            let layout = Layout::new(&screen(width));
+            let layout = Layout::new(&screen(width), theme);
             let half = layout.size / 2.0;
             let home = layout.home();
             assert!(home.x < 0.0 && home.y < 0.0);
@@ -1026,8 +1066,9 @@ mod tests {
 
     #[test]
     fn a_fan_never_overlaps_leaves_the_screen_or_touches_the_hub() {
+        let theme = Theme::default();
         for width in [480.0, 800.0, 1280.0, 2000.0] {
-            let layout = Layout::new(&screen(width));
+            let layout = Layout::new(&screen(width), theme);
             let (low, high) = layout.span();
             let gap = layout.spacing();
             for center in hubs(&layout) {
@@ -1065,7 +1106,8 @@ mod tests {
 
     #[test]
     fn a_fan_that_fits_keeps_the_usual_circle_and_one_ring() {
-        let layout = Layout::new(&screen(1280.0));
+        let theme = Theme::default();
+        let layout = Layout::new(&screen(1280.0), theme);
         let fan = fan_of(&layout, Vec2::ZERO, 4, 6);
         assert!(fan.rings.iter().all(|ring| *ring == 0));
         for at in &fan.centers {
@@ -1075,7 +1117,8 @@ mod tests {
 
     #[test]
     fn a_fan_takes_more_arc_for_longer_labels() {
-        let layout = Layout::new(&screen(1280.0));
+        let theme = Theme::default();
+        let layout = Layout::new(&screen(1280.0), theme);
         let spread = |letters| {
             let fan = fan_of(&layout, Vec2::ZERO, 4, letters);
             fan.centers[0].distance(fan.centers[3])
@@ -1086,8 +1129,9 @@ mod tests {
     #[test]
     fn the_circle_grows_by_the_least_that_makes_the_petals_fit() {
         let mut grown = 0;
+        let theme = Theme::default();
         for width in [640.0, 1280.0] {
-            let layout = Layout::new(&screen(width));
+            let layout = Layout::new(&screen(width), theme);
             let step = layout.petal_radius() / 2.0;
             let feet = vec![labelled(&layout, 9); 5];
             for center in hubs(&layout) {
@@ -1119,7 +1163,8 @@ mod tests {
 
     #[test]
     fn a_second_ring_opens_only_when_the_first_is_full_and_goes_on_the_same_side() {
-        let layout = Layout::new(&screen(1280.0));
+        let theme = Theme::default();
+        let layout = Layout::new(&screen(1280.0), theme);
         let center = layout.home();
         let fan = fan_of(&layout, center, 12, 14);
         let inner: Vec<Vec2> = (0..12)
@@ -1157,7 +1202,8 @@ mod tests {
 
     #[test]
     fn a_petal_bigger_than_the_screen_is_moved_onto_it_and_the_rest_still_fit() {
-        let layout = Layout::new(&screen(480.0));
+        let theme = Theme::default();
+        let layout = Layout::new(&screen(480.0), theme);
         let huge = Footprint {
             width: layout.size.x * 2.0,
             ..labelled(&layout, 3)
@@ -1169,7 +1215,8 @@ mod tests {
 
     #[test]
     fn a_fan_clears_the_hub_and_prefers_the_middle_of_the_screen() {
-        let layout = Layout::new(&Screen::default());
+        let theme = Theme::default();
+        let layout = Layout::new(&Screen::default(), theme);
         let home = layout.home();
         for petal in layout.fan(home, 3) {
             assert!(petal.distance(home) > layout.hub_radius() + layout.petal_radius());
@@ -1180,8 +1227,9 @@ mod tests {
 
     #[test]
     fn a_chip_hovers_higher_in_a_bigger_window() {
-        let wide = Layout::new(&screen(2000.0)).chip_lift();
-        let narrow = Layout::new(&screen(700.0)).chip_lift();
+        let theme = Theme::default();
+        let wide = Layout::new(&screen(2000.0), theme).chip_lift();
+        let narrow = Layout::new(&screen(700.0), theme).chip_lift();
         assert!(narrow < wide);
     }
 
@@ -1196,8 +1244,8 @@ mod tests {
 
     #[test]
     fn hud_nodes_tween_with_the_overshoot_on_the_layer_of_the_theme() {
-        let layout = Layout::new(&Screen::default());
         for theme in [Theme::default(), Theme::new(7)] {
+            let layout = Layout::new(&Screen::default(), theme);
             let [plate, border] =
                 theme.panel::<Demo>("p", Vec2::new(100.0, 40.0), Vec2::ZERO, &layout);
             for node in [&plate, &border] {
@@ -1211,13 +1259,13 @@ mod tests {
 
     #[test]
     fn the_theme_colors_the_nodes_and_scales_the_border_with_the_hud() {
-        let layout = Layout::new(&screen(550.0));
         let theme = Theme {
             fill: Color::srgb(1.0, 0.0, 0.0),
             border_width: 4.0,
             ..Theme::default()
         };
-        assert_eq!(theme.border_width(&layout), 4.0 * MIN_UNIT);
+        let layout = Layout::new(&screen(550.0), theme);
+        assert_eq!(theme.border_width(&layout), 4.0 * theme.min_unit);
         let [plate, _] =
             theme.panel::<Demo>("p", Vec2::new(100.0, 40.0), Vec2::new(5.0, 6.0), &layout);
         assert_eq!(plate.color, theme.fill.into());
@@ -1259,7 +1307,8 @@ mod tests {
 
     #[test]
     fn a_chip_hovers_straight_up_unless_a_handle_is_there() {
-        let layout = Layout::new(&Screen::default());
+        let theme = Theme::default();
+        let layout = Layout::new(&Screen::default(), theme);
         let up = Vec2::Y * layout.chip_lift();
         assert!(layout.chip_spot(Vec2::ZERO, &[]).distance(up) < 1e-3);
         assert!(
@@ -1287,7 +1336,8 @@ mod tests {
 
     #[test]
     fn a_chip_stays_on_the_screen_beside_an_element_at_the_edge() {
-        let layout = Layout::new(&Screen::default());
+        let theme = Theme::default();
+        let layout = Layout::new(&Screen::default(), theme);
         let corner = layout.top_left();
         let spot = layout.chip_spot(corner, &[]);
         assert_eq!(spot, layout.keep_inside(spot));

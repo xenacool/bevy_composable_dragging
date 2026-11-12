@@ -225,8 +225,9 @@ pub fn view(editor: &Editor) -> View<Editor> {
     blueprint::push(&mut view, editor);
     view.push(anchor(TRACK, Vec3::ZERO));
     curve_handles(editor).add_to(&mut view);
-    let layout = Layout::new(&editor.screen);
-    push_menu(&mut view, editor, &layout, &theme());
+    let theme = theme();
+    let layout = Layout::new(&editor.screen, theme);
+    push_menu(&mut view, editor, &layout, &theme);
     view
 }
 

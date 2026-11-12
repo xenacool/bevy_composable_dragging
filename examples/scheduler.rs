@@ -6,7 +6,7 @@
 
 use bevy::prelude::*;
 use bevy_composable_dragging::constraint::{Constraint, and, at_least, at_most, in_order};
-use bevy_composable_dragging::ops::{closest, substate, vary_constrained, Lens};
+use bevy_composable_dragging::ops::{Lens, closest, substate, vary_constrained};
 use bevy_composable_dragging::{DragSpec, DraggablePlugin, View, ViewNode, param};
 
 mod common;
@@ -56,19 +56,15 @@ fn slide(schedule: &Schedule, index: usize, lane: usize) -> DragSpec<MeetingStat
         end: meeting.end,
     };
     let length = meeting.end - meeting.start;
-    let keep_length = Constraint::new(move |state: &MeetingState| {
-        (state.end - state.start - length).abs()
-    });
+    let keep_length =
+        Constraint::new(move |state: &MeetingState| (state.end - state.start - length).abs());
     let within_day = and([
         at_least(param!(MeetingState, start), 0.0),
         at_most(param!(MeetingState, end), DAY),
     ]);
     vary_constrained(
         moved,
-        [
-            param!(MeetingState, start),
-            param!(MeetingState, end),
-        ],
+        [param!(MeetingState, start), param!(MeetingState, end)],
         and([keep_length, within_day]),
     )
 }
@@ -231,50 +227,7 @@ pub fn run(app: &mut App) {
 }
 
 fn main() {
-    let schedule = Schedule {
-        meetings: vec![
-            Meeting {
-                lane: 0,
-                start: 1.0,
-                end: 3.0,
-            },
-            Meeting {
-                lane: 0,
-                start: 5.0,
-                end: 8.0,
-            },
-            Meeting {
-                lane: 1,
-                start: 2.0,
-                end: 4.5,
-            },
-            Meeting {
-                lane: 2,
-                start: 0.5,
-                end: 2.5,
-            },
-            Meeting {
-                lane: 2,
-                start: 6.0,
-                end: 9.0,
-            },
-        ],
-    };
-    App::new()
-        .add_plugins(common::default_plugins("scheduler"))
-        .add_plugins(DraggablePlugin::new(schedule, view))
-        .add_plugins(ScriptedDragPlugin::straight(
-            Vec2::new(hour_x(3.25), lane_y(1)),
-            Vec2::new(hour_x(4.3), lane_y(2) + 0.15),
-        ))
-        .add_plugins(
-            AutoScreenshotPlugin::new("screenshot_scheduler.gif")
-                .with_title("scheduler")
-                .with_description("closest + vary")
-                .animation(600),
-        )
-        .add_systems(Startup, |mut commands: Commands| {
-            common::spawn_cameras(&mut commands, 6.0);
-        })
-        .run();
+    let mut app = App::new();
+    run(&mut app);
+    app.run();
 }

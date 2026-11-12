@@ -72,21 +72,7 @@ pub fn run(app: &mut App) {
 }
 
 fn main() {
-    App::new()
-        .add_plugins(common::default_plugins("stickiness"))
-        .add_plugins(DraggablePlugin::new(State { pos: 0 }, view))
-        .add_plugins(ScriptedDragPlugin::straight(
-            slot_position(0),
-            slot_position(2) + Vec2::new(0.0, 0.3),
-        ))
-        .add_plugins(
-            AutoScreenshotPlugin::new("screenshot_stickiness.gif")
-                .with_title("stickiness")
-                .with_description("closest with stickiness bias")
-                .animation(600),
-        )
-        .add_systems(Startup, |mut commands: Commands| {
-            common::spawn_cameras(&mut commands, 8.0);
-        })
-        .run();
+    let mut app = App::new();
+    run(&mut app);
+    app.run();
 }

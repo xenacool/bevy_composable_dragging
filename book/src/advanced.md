@@ -2,19 +2,70 @@
 
 ## Custom Operators
 
-Build a custom operator by returning a `DragSpec` from a function:
+Build a custom operator by returning a `DragSpec` from a function. The spec compiles once per drag into a `DragBehavior`, a closure from the `Pointer` to the `Frame` to show:
 
 ```rust
-use bevy_composable_dragging::{DragSpec, DragBehavior, DragContext};
-use bevy_composable_dragging::behavior::Frame;
+use bevy_composable_dragging::{DragSpec, DragContext, Frame};
+use bevy_composable_dragging::ops::custom;
 
-fn my_operator<S: Clone>(states: impl IntoIterator<Item = S>) -> DragSpec<S> {
-    DragSpec::new(move |context: &DragContext<S>| {
-        // Build a DragBehavior that produces Frame values
-        // Each frame has a view, drop_state, and gap
-        DragBehavior::new(/* ... */)
+/// Always drops on `target`, whatever the pointer does.
+fn always<S: Clone + Send + Sync + 'static>(target: S) -> DragSpec<S> {
+    custom(move |context: &DragContext<S>| {
+        let view = context.render(&target);
+        let context = context.clone();
+        let target = target.clone();
+        Box::new(move |pointer| {
+            let gap = context.gap_in(&view, &pointer);
+            Frame::new(view.clone(), target.clone(), gap)
+        })
     })
 }
+```
+
+Build frames with `Frame::new` so your operator keeps working when frames gain fields.
+
+## Custom Modifiers
+
+A modifier wraps another spec. `DragSpec::wrap` is the extension point for it, and the counterpart of Dragology's `modifier`: it runs once per drag with the context and the compiled behavior of the wrapped spec, and returns the behavior that replaces it. The wrapper can keep state between frames, change the pointer on the way in and change the frame on the way out:
+
+```rust
+use bevy_composable_dragging::DragSpec;
+
+/// Lets the wrapped spec see a pointer that trails the real one.
+fn smooth_pointer<S: Clone + Send + Sync + 'static>(
+    spec: DragSpec<S>,
+    follow: f32,
+) -> DragSpec<S> {
+    spec.wrap(move |_context, mut inner| {
+        let mut trailing = None;
+        Box::new(move |pointer| {
+            let from = trailing.unwrap_or(pointer.point);
+            let point = from.lerp(pointer.point, follow.clamp(0.0, 1.0));
+            trailing = Some(point);
+            inner(pointer.moved_to(point))
+        })
+    })
+}
+```
+
+State lives in the closure, so every drag starts afresh. When a modifier needs neither the context nor state, `change_frame` (remap the pointer point), `change_gap` and `change_result` (rewrite the frame) are shorter.
+
+## Tuning Defaults
+
+Values that used to be fixed are options with the old values as defaults:
+
+| Option | Default | What it does |
+|---|---|---|
+| `FloatingOptions::with_lift` | `0.5` | How far a floating node is lifted along the normal of the drag space |
+| `OverlayOptions::with_lift` | `1.0` | How far overlay nodes are lifted above the preview |
+| `BetweenOptions::with_sharpness` | `1.0` | How strongly `between` pulls towards the nearest target |
+| `DragModel::set_transition_duration` | `0.2` | Seconds the animation after a drop takes |
+
+```rust
+use bevy_composable_dragging::ops::{FloatingOptions, OverlayOptions};
+
+spec.with_floating_options(FloatingOptions::new().with_lift(2.0))
+    .with_overlay_options(|frame| marks(frame), OverlayOptions::new().with_lift(3.0))
 ```
 
 ## Parameters and Constraints
@@ -130,7 +181,7 @@ Combine dragging with physics engines like `avian3d`. The `physics_lab` example 
 
 ## Performance
 
-- Views are plain data — no ECS overhead for speculative evaluation
+- Views are plain data -- no ECS overhead for speculative evaluation
 - Geometry morphing is quantized to 32 steps
 - A heightmap is two flat buffers, so a copy is two memory copies and an edit names only the chunks it reaches
 - Gizmo handles use a dedicated render layer for fast picking
@@ -139,7 +190,7 @@ Combine dragging with physics engines like `avian3d`. The `physics_lab` example 
 
 The port aims to be faithful to the operators and behavior of Dragology. These differences are deliberate:
 
-- **Solver.** Dragology minimizes with COBYLA. The only COBYLA crate for Rust declares no license, so `vary` uses a Nelder–Mead search with a penalty stage instead (`src/solver.rs`). It reproduces the cases of Dragology's `optimization.test.ts` that are ported into the unit tests, including equality lines and a pin on a fixed distance from a point. It is meant for the one to three parameters that drags vary; with many parameters or hard curved constraints COBYLA may do better.
+- **Solver.** Dragology minimizes with COBYLA. The only COBYLA crate for Rust declares no license, so `vary` uses a Nelder-Mead search with a penalty stage instead (`src/solver.rs`). It reproduces the cases of Dragology's `optimization.test.ts` that are ported into the unit tests, including equality lines and a pin on a fixed distance from a point. It is meant for the one to three parameters that drags vary; with many parameters or hard curved constraints COBYLA may do better.
 - **`between` drop rule.** Dragology drops onto the target nearest the pointer. The default here drops onto the target with the largest blend weight; `DropRule::NearestTarget` selects Dragology's rule.
 - **`drop_target` bounds.** The default measures the target in the state the drag started from, so it keeps working when a drop removes the target. Dragology measures it in the target state; `drop_target_with_bounds` does that.
 - **`with_overlay`.** The overlay is a list of ordinary non-draggable nodes, in the `overlay-` namespace, instead of SVG. There is no tree view or overlay visualization of operators.
@@ -176,6 +227,8 @@ The test cases of Dragology's `closest.test.tsx`, `userOps.test.tsx`, `math/dela
 | `tactile_tessellations` | edge-to-edge snaps with rotation |
 | `gizmo_3d` | translate, rotate and scale gizmos in 3D drag spaces |
 | `physics_lab` | 3D physics shapes dragged onto a grid, simulated with avian |
+| `graspable_math` | equation manipulation by dragging terms across the equals sign |
+| `tactile_tessellations_3d` | 3D polyhedra that snap face-to-face |
 | `cozy_castle` | radial menu, stacking rooms speculatively, an arch carved into a swept wall |
 | `kart_racer_editor` | a pulled curve, a scaled sweep road, hills and a radial menu |
 

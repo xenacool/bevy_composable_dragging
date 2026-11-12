@@ -748,7 +748,7 @@ pub fn view(lab: &Lab, theme: &Theme) -> View<Lab> {
             );
         }
     }
-    let layout = Layout::new(lab.screen());
+    let layout = Layout::new(lab.screen(), *theme);
     push_menu(&mut view, lab, &layout, theme);
     view
 }

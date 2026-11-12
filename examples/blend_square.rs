@@ -107,21 +107,7 @@ pub fn run(app: &mut App) {
 }
 
 fn main() {
-    App::new()
-        .add_plugins(common::default_plugins("blend_square"))
-        .add_plugins(DraggablePlugin::new(Corner::Coral, view))
-        .add_plugins(ScriptedDragPlugin::straight(
-            Corner::Coral.position(),
-            Vec2::new(0.6, 0.9),
-        ))
-        .add_plugins(
-            AutoScreenshotPlugin::new("screenshot_blend_square.gif")
-                .with_title("blend_square")
-                .with_description("between_with: natural neighbor + sharpness")
-                .animation(600),
-        )
-        .add_systems(Startup, |mut commands: Commands| {
-            common::spawn_cameras(&mut commands, 7.0);
-        })
-        .run();
+    let mut app = App::new();
+    run(&mut app);
+    app.run();
 }

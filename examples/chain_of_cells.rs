@@ -88,21 +88,7 @@ pub fn run(app: &mut App) {
 }
 
 fn main() {
-    App::new()
-        .add_plugins(common::default_plugins("chain_of_cells"))
-        .add_plugins(DraggablePlugin::new(Token(0), view))
-        .add_plugins(ScriptedDragPlugin::straight(
-            cell_position(0),
-            cell_position(5),
-        ))
-        .add_plugins(
-            AutoScreenshotPlugin::new("screenshot_chain_of_cells.gif")
-                .with_title("chain_of_cells")
-                .with_description("with_chaining + overlay")
-                .animation(600),
-        )
-        .add_systems(Startup, |mut commands: Commands| {
-            common::spawn_cameras(&mut commands, 6.0);
-        })
-        .run();
+    let mut app = App::new();
+    run(&mut app);
+    app.run();
 }

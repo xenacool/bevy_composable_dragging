@@ -6,6 +6,7 @@
 - [Operators](./operators.md)
 - [Drag Spaces](./spaces.md)
 - [Blending](./blending.md)
+- [Gradient Shapes](./gradmesh.md)
 - [Gizmos](./gizmos.md)
 - [Curve Handles](./handles.md)
 - [Heightmaps](./heightmaps.md)
