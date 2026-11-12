@@ -7,6 +7,8 @@ use bevy::light::NotShadowCaster;
 use bevy::prelude::*;
 
 use crate::geometry::Geometry;
+#[cfg(feature = "gradmesh")]
+use crate::geometry::RenderConfig;
 use crate::rendering::Rendering;
 use crate::view::ViewNode;
 
@@ -85,15 +87,11 @@ fn flat_material(color: LinearRgba) -> StandardMaterial {
     }
 }
 
-/// The number of steps the alpha of a fading gradient is quantized to.
-#[cfg(feature = "gradmesh")]
-const ALPHA_STEPS: f32 = 16.0;
-
 /// The gradient of nodes without a style of their own: their color on top and a darker shade
 /// below. Blending their colors therefore blends their gradients too.
 #[cfg(feature = "gradmesh")]
-pub(crate) fn gradient_style(color: LinearRgba) -> Style {
-    Style::shaded(Color::from(color), 0.35)
+pub(crate) fn gradient_style(color: LinearRgba, shade: f32) -> Style {
+    Style::shaded(Color::from(color), shade)
 }
 
 /// Whether the rendering mode draws `Mesh2d` entities.
@@ -135,6 +133,8 @@ pub(crate) struct Looks<'w> {
     gradient_2d: Option<ResMut<'w, Assets<GradMeshMaterial2d>>>,
     #[cfg(feature = "gradmesh")]
     sdf_2d: Option<ResMut<'w, Assets<SdfMaterial2d>>>,
+    #[cfg(feature = "gradmesh")]
+    render_config: Res<'w, RenderConfig>,
 }
 
 impl Looks<'_> {
@@ -200,12 +200,14 @@ impl Looks<'_> {
         let _ = mode;
         #[cfg(feature = "gradmesh")]
         if node.geometry.is_gradient() {
+            let config = &*self.render_config;
             let mut style = node
                 .style
                 .clone()
-                .unwrap_or_else(|| gradient_style(node.color));
+                .unwrap_or_else(|| gradient_style(node.color, config.gradient_shade));
             if opacity < 1.0 {
-                style = style.with_alpha((opacity * ALPHA_STEPS).round() / ALPHA_STEPS);
+                style =
+                    style.with_alpha((opacity * config.alpha_steps).round() / config.alpha_steps);
             }
             set_shadow_casting(entity, node.casts_shadow && style.casts_shadows());
             let material = self.pool.get_or_add(&style, &mut self.gradient);
@@ -249,12 +251,14 @@ impl Looks<'_> {
             return;
         };
         if node.geometry.is_gradient() {
+            let config = &*self.render_config;
             let mut style = node
                 .style
                 .clone()
-                .unwrap_or_else(|| gradient_style(node.color));
+                .unwrap_or_else(|| gradient_style(node.color, config.gradient_shade));
             if opacity < 1.0 {
-                style = style.with_alpha((opacity * ALPHA_STEPS).round() / ALPHA_STEPS);
+                style =
+                    style.with_alpha((opacity * config.alpha_steps).round() / config.alpha_steps);
             }
             entity
                 .insert(MeshMaterial2d(gradient.add(style.build_2d())))

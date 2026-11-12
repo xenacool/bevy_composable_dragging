@@ -22,6 +22,8 @@ pub mod heightmap;
 pub mod hud;
 #[cfg(feature = "pbr")]
 mod input;
+#[cfg(feature = "gradmesh")]
+pub mod label;
 mod lerp;
 mod model;
 pub mod ops;
@@ -53,6 +55,8 @@ pub use blend::{Blend, Presence};
 pub use constraint::Constraint;
 #[cfg(feature = "pbr")]
 pub use geometry::MeshGeometry;
+#[cfg(feature = "gradmesh")]
+pub use geometry::RenderConfig;
 pub use geometry::{Bounds, Geometry};
 #[cfg(feature = "pbr")]
 pub use input::DragPlane;

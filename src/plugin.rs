@@ -7,6 +7,7 @@ use bevy::prelude::*;
 use bevy::scene::ScenePlugin;
 
 use crate::behavior::ViewFn;
+use crate::geometry::RenderConfig;
 use crate::input::{DragPlane, on_click, on_drag, on_drag_end, on_drag_start, on_press};
 use crate::model::DragModel;
 use crate::render::{NodeEntities, sync_nodes};
@@ -26,6 +27,8 @@ pub struct DraggablePlugin<S> {
     initial: S,
     view_fn: ViewFn<S>,
     transition_duration: Option<f32>,
+    max_chains: Option<usize>,
+    render_config: Option<RenderConfig>,
     rendering: Rendering,
 }
 
@@ -39,6 +42,8 @@ impl<S> DraggablePlugin<S> {
             initial,
             view_fn: ViewFn::new(view_fn),
             transition_duration: None,
+            max_chains: None,
+            render_config: None,
             rendering: Rendering::default(),
         }
     }
@@ -56,6 +61,22 @@ impl<S> DraggablePlugin<S> {
     #[must_use]
     pub fn with_transition_duration(mut self, seconds: f32) -> Self {
         self.transition_duration = Some(seconds);
+        self
+    }
+
+    /// Sets how many times one pointer position may chain into a new drag before the engine stops.
+    /// The default is 16, which covers deeply nested chaining without looping indefinitely.
+    #[must_use]
+    pub fn with_max_chains(mut self, max: usize) -> Self {
+        self.max_chains = Some(max.max(1));
+        self
+    }
+
+    /// Sets render configuration for gradient shapes: morph steps, alpha steps, and gradient shade.
+    #[cfg(feature = "gradmesh")]
+    #[must_use]
+    pub fn with_render_config(mut self, config: RenderConfig) -> Self {
+        self.render_config = Some(config);
         self
     }
 }
@@ -105,6 +126,15 @@ impl<S: Clone + Send + Sync + 'static> Plugin for DraggablePlugin<S> {
         let mut model = DragModel::from_view_fn(self.initial.clone(), self.view_fn.clone());
         if let Some(seconds) = self.transition_duration {
             model.set_transition_duration(seconds);
+        }
+        if let Some(max) = self.max_chains {
+            model.set_max_chains(max);
+        }
+        #[cfg(feature = "gradmesh")]
+        if let Some(config) = self.render_config {
+            app.insert_resource(config);
+        } else {
+            app.init_resource::<RenderConfig>();
         }
         app.insert_resource(model)
             .insert_resource(self.rendering)

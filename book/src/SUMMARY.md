@@ -11,6 +11,7 @@
 - [Curve Handles](./handles.md)
 - [Heightmaps](./heightmaps.md)
 - [HUDs](./huds.md)
+- [Text Labels](./labels.md)
 - [Radial Menus](./radial.md)
 - [App Content](./app-content.md)
 - [Advanced Topics](./advanced.md)
