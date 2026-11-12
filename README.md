@@ -46,35 +46,41 @@ or the [API reference on docs.rs](https://docs.rs/bevy_composable_dragging).
 Run any example with `cargo run --example <name>`; the gradient examples need their feature, for
 example `cargo run --example gradient_hanoi_3d --features shapes-3d`.
 
-## Demos in examples/
+## Screenshots
 
-![cozy_castle](https://raw.githubusercontent.com/xenacool/bevy_composable_dragging/main/screenshots/screenshot_cozy_castle.gif)
+All example screenshots are packaged in a zip archive attached to each
+[GitHub Release](https://github.com/xenacool/bevy_composable_dragging/releases). Download the
+latest `screenshots-v*.zip` for still PNGs and animated GIFs.
 
-`cozy_castle`: pieces are chosen from a radial menu and dragged onto one another, and every
-position along the drag is evaluated speculatively, so the rooms of the first floor change while
-the pointer is still down. An archway dropped on a swept wall carves a hole in it.
+### Examples
 
-![kart_racer_editor](https://raw.githubusercontent.com/xenacool/bevy_composable_dragging/main/screenshots/screenshot_kart_racer_editor.gif)
+- `blend_square` — `between_with` natural neighbor and sharpness
+- `chain_of_cells` — `with_chaining`, overlay underline, drop transition
+- `clock` — `vary` one angle
+- `constellation` — `substate` — focus one star while lines stretch and others stay draggable
+- `cozy_castle` — Pieces are chosen from a radial menu and dragged onto one another, and every
+  position along the drag is evaluated speculatively, so the rooms of the first floor change while
+  the pointer is still down. An archway dropped on a swept wall carves a hole in it.
+- `dag` — `substate` — drag nodes and arrowheads while keeping the graph acyclic
+- `gizmo_3d` — Translate, rotate and scale gizmos in 3D drag spaces
+- `gradient_hanoi_3d` — `shapes-3d`
+- `gradient_kanban_2d` — `shapes-2d`
+- `kart_racer_editor` — A track editor whose sweep road is scaled, whose curve is pulled by its
+  handles while the road follows, and whose tools are picked from a radial menu.
+- `lists_in_lists` — Rows nested to any depth, `when_far` snap-or-free, `with_overlay` insertion marker
+- `physics_lab` — 3D physics shapes dragged onto a grid, simulated with avian
+- `reorder_list` — `closest` + floating
+- `ring_of_beads` — `closest` on a ring
+- `scheduler` — `closest` + `vary`
+- `slider` — `vary` with a range constraint
+- `tactile_tessellations` — Edge-to-edge snaps with rotation
+- `tessellations` — Toolbar and trash bin
+- `three_way` — `between` over three states
+- `toggle` — `between`
 
-`kart_racer_editor`: a track editor whose sweep road is scaled, whose curve is pulled by its
-handles while the road follows, and whose tools are picked from a radial menu.
+## Interactive Demos
 
-## Gallery
-
-| | | |
-|---|---|---|
-| ![toggle](https://raw.githubusercontent.com/xenacool/bevy_composable_dragging/main/screenshots/screenshot_toggle.gif) | ![three_way](https://raw.githubusercontent.com/xenacool/bevy_composable_dragging/main/screenshots/screenshot_three_way.gif) | ![reorder_list](https://raw.githubusercontent.com/xenacool/bevy_composable_dragging/main/screenshots/screenshot_reorder_list.gif) |
-| `toggle`: `between` | `three_way`: `between` over three states | `reorder_list`: `closest` + floating |
-| ![ring_of_beads](https://raw.githubusercontent.com/xenacool/bevy_composable_dragging/main/screenshots/screenshot_ring_of_beads.gif) | ![slider](https://raw.githubusercontent.com/xenacool/bevy_composable_dragging/main/screenshots/screenshot_slider.gif) | ![clock](https://raw.githubusercontent.com/xenacool/bevy_composable_dragging/main/screenshots/screenshot_clock.gif) |
-| `ring_of_beads`: `closest` on a ring | `slider`: `vary` with a range constraint | `clock`: `vary` one angle |
-| ![scheduler](https://raw.githubusercontent.com/xenacool/bevy_composable_dragging/main/screenshots/screenshot_scheduler.gif) | ![lists_in_lists](https://raw.githubusercontent.com/xenacool/bevy_composable_dragging/main/screenshots/screenshot_lists_in_lists.gif) | ![tessellations](https://raw.githubusercontent.com/xenacool/bevy_composable_dragging/main/screenshots/screenshot_tessellations.gif) |
-| `scheduler`: `closest` + `vary` | `lists_in_lists`: rows nested to any depth, `when_far` snap-or-free, `with_overlay` insertion marker | `tessellations`: toolbar and trash bin |
-| ![gradient_hanoi_3d](https://raw.githubusercontent.com/xenacool/bevy_composable_dragging/main/screenshots/screenshot_gradient_hanoi_3d.gif) | ![gradient_kanban_2d](https://raw.githubusercontent.com/xenacool/bevy_composable_dragging/main/screenshots/screenshot_gradient_kanban_2d.gif) | ![hello](https://raw.githubusercontent.com/xenacool/bevy_composable_dragging/main/screenshots/screenshot_hello.gif) |
-| `gradient_hanoi_3d`: `shapes-3d` | `gradient_kanban_2d`: `shapes-2d` | `hello`: minimal `state` example |
-| ![chain_of_cells](https://raw.githubusercontent.com/xenacool/bevy_composable_dragging/main/screenshots/screenshot_chain_of_cells.gif) | ![blend_square](https://raw.githubusercontent.com/xenacool/bevy_composable_dragging/main/screenshots/screenshot_blend_square.gif) | ![tactile_tessellations](https://raw.githubusercontent.com/xenacool/bevy_composable_dragging/main/screenshots/screenshot_tactile_tessellations.gif) |
-| `chain_of_cells`: `with_chaining`, overlay underline, drop transition | `blend_square`: `between_with` natural neighbor and sharpness | `tactile_tessellations`: edge-to-edge snaps with rotation |
-| ![gizmo_3d](https://raw.githubusercontent.com/xenacool/bevy_composable_dragging/main/screenshots/screenshot_gizmo_3d.gif) | ![physics_lab](https://raw.githubusercontent.com/xenacool/bevy_composable_dragging/main/screenshots/screenshot_physics_lab.gif) | |
-| `gizmo_3d`: translate, rotate and scale gizmos in 3D drag spaces | `physics_lab`: 3D physics shapes dragged onto a grid, simulated with avian | |
+Try these examples in your browser at the [demo gallery](https://xenacool.github.io/demos/gallery.html).
 
 ## Credits
 

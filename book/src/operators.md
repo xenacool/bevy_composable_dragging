@@ -1,8 +1,8 @@
 # Operators
 
-Operators build `DragSpec`s declaratively. They follow Figure 4 of the Dragology paper and compose freely — specs are plain data that compile into per-frame behavior.
+Operators build `DragSpec`s declaratively. They follow Figure 4 of the Dragology paper and compose freely -- specs are plain data that compile into per-frame behavior.
 
-## `state` — Switch to a Fixed State
+## `state` -- Switch to a Fixed State
 
 The simplest operator: dragging switches to the given state.
 
@@ -13,7 +13,7 @@ ViewNode::circle("button", 0.3)
     .draggable(|| state(true))
 ```
 
-## `between` — Toggle Between States
+## `between` -- Toggle Between States
 
 Drag between a list of discrete states. The preview interpolates between them, and the nearest state wins on release.
 
@@ -27,15 +27,45 @@ ViewNode::circle("knob", 0.5)
 With custom interpolation and drop rules:
 
 ```rust
-use bevy_composable_dragging::ops::{between_with, BetweenOptions, Interpolation};
+use bevy_composable_dragging::ops::{between_with, BetweenOptions, Interpolation, DropRule};
 
 between_with([a, b, c, d], BetweenOptions::new()
     .with_interpolation(Interpolation::NaturalNeighbor)
+    .with_drop_rule(DropRule::NearestTarget)
+    .with_sharpness(2.0)
 )
+```
 
 *Three states arranged in a triangle. Run `cargo run --example three_way --features pbr`.*
 
-## `closest` — Pick the Nearest State
+### Interpolation Modes
+
+`Interpolation` controls how weight is spread over the targets:
+
+| Mode | Behavior |
+|------|----------|
+| `Hull` | Barycentric weights in the smallest triangle containing the pointer (default) |
+| `Delaunay` | Barycentric weights in the Delaunay triangulation triangle |
+| `NaturalNeighbor` | Sibson weights: smoother, every neighboring target shares the weight |
+
+### Drop Rules
+
+`DropRule` controls which target a drop commits to:
+
+| Rule | Behavior |
+|------|----------|
+| `LargestWeight` | The target with the largest blend weight (default) |
+| `NearestTarget` | The target nearest the pointer (Dragology's behavior) |
+
+### Sharpness
+
+`sharpness` raises every weight to a power before normalizing. A value of `1.0` changes nothing. Higher values make the dragged node pull toward the nearest target, approaching `closest` behavior at extreme values.
+
+```rust
+BetweenOptions::new().with_sharpness(4.0)  // strong pull to nearest
+```
+
+## `closest` -- Pick the Nearest State
 
 Evaluate many drag specs and pick the one whose dragged node is closest to the pointer.
 
@@ -68,7 +98,7 @@ stickiness value. A value of zero behaves like plain `closest_states`.
 
 *Three slots with a sticky dot. Run `cargo run --example stickiness --features pbr`.*
 
-## `vary` — Continuously Change a Value
+## `vary` -- Continuously Change a Value
 
 Continuously change a numeric parameter of your state as you drag.
 
@@ -143,7 +173,7 @@ vary_constrained(
 
 *Two knobs locked together. Run `cargo run --example equal_constraint --features pbr`.*
 
-## `substate` — Isolate One Item with a Lens (the Zipper Pattern)
+## `substate` -- Isolate One Item with a Lens (the Zipper Pattern)
 
 `substate` is the most important operator for collections. When you drag one item in a list, grid, or graph, `substate` isolates that item's state so the inner drag spec operates on a small value instead of the entire collection. This is called the **zipper pattern**: you zoom into one element, manipulate it, and zip back out.
 
@@ -178,7 +208,7 @@ substate(tile, closest(branches))
 
 The `substate` operator's `lift` function (the zipper) works like this:
 
-1. Render the full view via the view function — this includes all drag factories from all nodes.
+1. Render the full view via the view function -- this includes all drag factories from all nodes.
 2. Run the inner spec to get the dragged node's new transform.
 3. Merge only that transform into the full view, leaving every other node untouched.
 
@@ -212,17 +242,17 @@ The outer `substate` isolates the tile from the board. The inner `substate` unwr
 
 ### Real Examples
 
-- **`constellation`** — each star's position is isolated via `substate`. While dragging one star, the others stay draggable and their connecting lines stretch naturally.
-- **`tactile_tessellations`** — one tile's pose (position + rotation) is isolated. Snap branches are `Some(TilePose)` instead of full board clones. The `no_overlap` constraint scores only the dragged tile's pose.
-- **`tactile_tessellations_3d`** — same pattern in 3D: one tile's `Pose` isolates position and rotation on a face grid.
-- **`dag`** — an arrowhead's target is isolated via `substate`, snapping to nodes that keep the graph acyclic.
-- **`scheduler`** — one meeting's `(lane, start, end)` is isolated from the full schedule. While dragging one meeting, others remain interactive.
+- **`constellation`** -- each star's position is isolated via `substate`. While dragging one star, the others stay draggable and their connecting lines stretch naturally.
+- **`tactile_tessellations`** -- one tile's pose (position + rotation) is isolated. Snap branches are `Some(TilePose)` instead of full board clones. The `no_overlap` constraint scores only the dragged tile's pose.
+- **`tactile_tessellations_3d`** -- same pattern in 3D: one tile's `Pose` isolates position and rotation on a face grid.
+- **`dag`** -- an arrowhead's target is isolated via `substate`, snapping to nodes that keep the graph acyclic.
+- **`scheduler`** -- one meeting's `(lane, start, end)` is isolated from the full schedule. While dragging one meeting, others remain interactive.
 
 ### When Not to Use It
 
 If your state IS the value you're dragging (a single scalar, a toggle, a slider), `substate` adds unnecessary indirection. Use it when your state is a collection and you're dragging one element.
 
-## `drop_target` — Define a Drop Zone
+## `drop_target` -- Define a Drop Zone
 
 Mark a node as a drop target that accepts drops from other nodes.
 
@@ -233,7 +263,7 @@ ViewNode::rectangle("zone", Vec2::splat(2.0))
     .draggable(|| drop_target("dropper", dropped_state))
 ```
 
-## `react_to` — React to External Values
+## `react_to` -- React to External Values
 
 Rebuild the drag spec when an external value changes, such as a modifier key:
 
@@ -247,7 +277,7 @@ ViewNode::circle("reactor", 0.3)
     ))
 ```
 
-## `button` — Click Without Dragging
+## `button` -- Click Without Dragging
 
 A node that activates on press-and-release without moving:
 
@@ -258,7 +288,7 @@ ViewNode::circle("btn", 0.3)
     .draggable(|| button(clicked_state, 0.1))
 ```
 
-## `custom` — Full Control
+## `custom` -- Full Control
 
 Provide a custom compile function for complete control over drag behavior.
 
@@ -272,15 +302,133 @@ ViewNode::circle("custom", 0.3)
     }))
 ```
 
+## `during` -- Transform the Preview State
+
+`.during()` transforms the drop state on every frame and shows the transformed state as the preview. It is like `.on_drop_with()` but also changes what the user sees during the drag. The gap is measured from the dragged node of the transformed preview.
+
+```rust
+use bevy_composable_dragging::ops::closest_states;
+
+// Show a magnified version while dragging, but drop the normal state
+closest_states(states)
+    .during(|state| {
+        let mut s = state.clone();
+        s.scale *= 1.5;
+        s
+    })
+```
+
+## `switch_to_state_and_follow` -- Create and Follow a New Node
+
+Switch to a new state and immediately start dragging a different node in that state. Used for chaining where the dragged node changes identity.
+
+```rust
+use bevy_composable_dragging::ops::{switch_to_state_and_follow, closest_states};
+
+// Dragging a tool creates a tile that follows the pointer
+switch_to_state_and_follow(
+    new_state_with_tile,
+    "tile",
+    || closest_states(tile_positions),
+)
+```
+
+## `follow` -- Make a Node Follow the Pointer
+
+A simple operator that makes the dragged node follow the pointer position directly, with no snapping or targets.
+
+```rust
+use bevy_composable_dragging::ops::follow;
+
+ViewNode::sphere("free", 0.5)
+    .draggable(|| follow())
+```
+
 ## Value Operators
 
-Three operators for direct value editing along axes and planes:
+Three operators for direct value editing along axes and planes. Unlike `vary`, which uses a solver to find parameters, these measure the pointer directly: distance along an axis, angle around an axis, or offset across a plane. They are exact and need no solver.
 
-- **`along_axis`** — Change a value by dragging along a line
-- **`around_axis`** — Change a value by dragging around a ring (rotation)
-- **`across_plane`** — Change a value by dragging across a plane
+### `along_axis`
 
-These are used by gizmos and curve handles for precise editing with snapping.
+Change a value by dragging along a line:
+
+```rust
+use bevy_composable_dragging::ops::along_axis;
+
+along_axis(|state, distance| {
+    let mut s = state.clone();
+    s.position.x += distance;
+    s
+})
+```
+
+### `around_axis`
+
+Change a value by dragging around a ring (rotation):
+
+```rust
+use bevy_composable_dragging::ops::around_axis;
+
+around_axis(|state, angle| {
+    let mut s = state.clone();
+    s.rotation += angle;
+    s
+})
+```
+
+### `across_plane`
+
+Change a value by dragging across a plane:
+
+```rust
+use bevy_composable_dragging::ops::across_plane;
+
+across_plane(|state, offset| {
+    let mut s = state.clone();
+    s.position.x += offset.x;
+    s.position.z += offset.y;
+    s
+})
+```
+
+### `Snap` -- Step Snapping for Value Operators
+
+A `Snap` pulls the preview onto discrete steps. The preview is pulled toward the nearest step once the value is within the snap radius, and a drop commits the exact step.
+
+```rust
+use bevy_composable_dragging::ops::Snap;
+
+// No snapping -- continuous values
+Snap::NONE
+
+// Snap to multiples of 0.1
+Snap::step(0.1)
+
+// Snap with a custom pull radius
+Snap::step(0.5).within(0.3)
+```
+
+### `Tracked` -- Deferred Snapping
+
+Value operators return a `Tracked<S>` that can be converted to a `DragSpec` via `into()`, or further configured with `.snap()` before conversion:
+
+```rust
+use bevy_composable_dragging::ops::{along_axis, Snap};
+
+let tracked = along_axis(|state, distance| {
+    let mut s = state.clone();
+    s.position.x += distance;
+    s
+});
+
+// Convert directly (no snapping)
+let spec: DragSpec<MyState> = tracked.into();
+
+// Or add snapping first
+let spec = tracked.snap(Snap::step(0.5)).into();
+```
+
+Value operators are used by gizmos and curve handles for precise editing with snapping.
 
 ## Spec Modifiers
 

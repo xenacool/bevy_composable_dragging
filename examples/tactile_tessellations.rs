@@ -322,11 +322,21 @@ fn tile_spec(board: &Board, id: u32) -> DragSpec<Board> {
     );
     let branches = snaps
         .into_iter()
-        .map(|snap| state(Some(TilePose { pos: snap.pos, rot_deg: snap.rot_deg })))
+        .map(|snap| {
+            state(Some(TilePose {
+                pos: snap.pos,
+                rot_deg: snap.rot_deg,
+            }))
+        })
         .chain([drop_target(TRASH, None)])
         .collect::<Vec<_>>();
     let tile = Lens::new(
-        move |board: &Board| Some(TilePose { pos: board.tile(id).pos, rot_deg: board.tile(id).rot_deg }),
+        move |board: &Board| {
+            Some(TilePose {
+                pos: board.tile(id).pos,
+                rot_deg: board.tile(id).rot_deg,
+            })
+        },
         move |board: &Board, pose| board.with_tile(id, pose),
     );
     let node = tile_id(id);
@@ -386,8 +396,7 @@ fn tile_node<S>(
     sides: u32,
     color: Color,
 ) -> ViewNode<S> {
-    ViewNode::grad(id, tile_shape(sides))
-        .with_style(Style::shaded(color, 1.0))
+    ViewNode::grad(id, tile_shape(sides)).with_style(Style::shaded(color, 1.0))
 }
 
 /// A tile shape with its outline: the outline is a larger shape of the stroke color behind it.
@@ -472,7 +481,8 @@ fn view(board: &Board) -> View<Board> {
         let snapshot = board.clone();
         let [shape, outline] = outlined(&tile_id(id), sides, 1.0);
         view.push(
-            shape.at_xy(tile.pos)
+            shape
+                .at_xy(tile.pos)
                 .with_z(TILE_Z)
                 .with_rotation_xy(tile.rot_deg.to_radians())
                 .draggable(move || tile_spec(&snapshot, id)),
@@ -534,44 +544,9 @@ pub fn run(app: &mut App) {
 }
 
 fn main() {
-    // A hexagon with a triangle and a square snapped to it, and a square waiting in the palette
-    // to be dragged against the other side.
-    let hexagon = Tile {
-        id: 0,
-        sides: 6,
-        pos: Vec2::new(-1.0, -1.2),
-        rot_deg: 0.0,
-    };
-    let triangle = compute_snaps(3, std::slice::from_ref(&hexagon), None)[0];
-    let board = Board {
-        tiles: vec![
-            hexagon.clone(),
-            Tile {
-                id: 1,
-                sides: 3,
-                pos: triangle.pos,
-                rot_deg: triangle.rot_deg,
-            },
-        ],
-        next_id: 2,
-    };
-    let target = edges(&world_vertices(6, hexagon.pos, 0.0))[5].mid() + Vec2::new(-0.3, 0.2);
-    App::new()
-        .add_plugins(common::default_plugins("tactile_tessellations"))
-        .add_plugins(PhysicsPlugins::default())
-        .add_plugins(DraggablePlugin::new(board, view))
-        .add_systems(Startup, spawn_tile_colliders)
-        .add_plugins(ScriptedDragPlugin::straight(palette_position(4), target))
-        .add_plugins(
-            AutoScreenshotPlugin::new("screenshot_tactile_tessellations.gif")
-                .with_title("tactile_tessellations")
-                .with_description("snapping, rotation, trash bin")
-                .animation(600),
-        )
-        .add_systems(Startup, |mut commands: Commands| {
-            common::spawn_cameras(&mut commands, CANVAS_HEIGHT);
-        })
-        .run();
+    let mut app = App::new();
+    run(&mut app);
+    app.run();
 }
 
 #[cfg(test)]

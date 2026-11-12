@@ -6,6 +6,7 @@
 //! when far from them; dropped loose, the edge is deleted.
 
 use bevy::prelude::*;
+use bevy_composable_dragging::label::{Label, LabelPlugin, LabelsResource};
 use bevy_composable_dragging::ops::{Lens, closest_states, substate, vary};
 use bevy_composable_dragging::{DragSpec, DraggablePlugin, Frame, Param, View, ViewNode, param};
 
@@ -230,6 +231,27 @@ fn initial() -> Dag {
     }
 }
 
+/// The render layer of the labels, which only the label camera draws.
+const LABEL_LAYER: usize = 3;
+
+/// Label names for the DAG nodes, in order.
+const NODE_NAMES: [&str; 5] = ["A", "B", "C", "D", "E"];
+
+/// Returns a text label for each node in the DAG.
+fn dag_labels(dag: &Dag, _view: &View<Dag>) -> Vec<Label> {
+    dag.nodes
+        .iter()
+        .enumerate()
+        .map(|(index, _position)| {
+            Label::new(
+                format!("label-{index}"),
+                NODE_NAMES[index],
+                format!("node-{index}"),
+            )
+        })
+        .collect()
+}
+
 /// Run this example. Called by the WASM runner.
 pub fn run(app: &mut App) {
     let dag = initial();
@@ -238,6 +260,8 @@ pub fn run(app: &mut App) {
     retargeted.edges[2].to = End::Node(4);
     app.add_plugins(common::default_plugins("dag"))
         .add_plugins(DraggablePlugin::new(dag.clone(), view))
+        .insert_resource(LabelsResource::<Dag>::new(dag_labels, LABEL_LAYER))
+        .add_plugins(LabelPlugin::<Dag>::default())
         .add_plugins(ScriptedDragPlugin::straight(
             dag.grip(2),
             retargeted.grip(2),

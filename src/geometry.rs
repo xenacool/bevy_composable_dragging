@@ -26,10 +26,65 @@ const FLAT: f32 = 1e-3;
 #[cfg(feature = "gradmesh")]
 const EDGE: f32 = 1e-6;
 
-/// The number of steps a morph between two shapes is quantized to, which bounds the number of
+/// The default number of steps a morph between two shapes is quantized to, which bounds the number of
 /// distinct meshes a blend builds.
 #[cfg(feature = "gradmesh")]
-const MORPH_STEPS: f32 = 32.0;
+const DEFAULT_MORPH_STEPS: f32 = 32.0;
+
+/// Render configuration for gradient shapes.
+///
+/// Inserted by [`DraggablePlugin`](crate::DraggablePlugin) with sensible defaults. Change the
+/// values before adding the plugin, or replace the resource afterwards.
+#[cfg(feature = "gradmesh")]
+#[derive(bevy::ecs::resource::Resource, Clone, Copy, Debug, PartialEq)]
+#[non_exhaustive]
+pub struct RenderConfig {
+    /// The number of steps a morph between two shapes is quantized to. Higher values produce
+    /// smoother transitions but create more distinct meshes. Default is 32.
+    pub morph_steps: f32,
+    /// The number of steps the alpha of a fading gradient is quantized to. Higher values produce
+    /// smoother fades but create more distinct materials. Default is 16.
+    pub alpha_steps: f32,
+    /// How dark the bottom of the derived gradient is, as a fraction of the top color.
+    /// Nodes without an explicit style get a gradient from their color to this shade.
+    /// Default is 0.35.
+    pub gradient_shade: f32,
+}
+
+#[cfg(feature = "gradmesh")]
+impl Default for RenderConfig {
+    fn default() -> Self {
+        Self {
+            morph_steps: DEFAULT_MORPH_STEPS,
+            alpha_steps: 16.0,
+            gradient_shade: 0.35,
+        }
+    }
+}
+
+#[cfg(feature = "gradmesh")]
+impl RenderConfig {
+    /// Sets the morph steps.
+    #[must_use]
+    pub fn with_morph_steps(mut self, steps: f32) -> Self {
+        self.morph_steps = steps.max(1.0);
+        self
+    }
+
+    /// Sets the alpha steps.
+    #[must_use]
+    pub fn with_alpha_steps(mut self, steps: f32) -> Self {
+        self.alpha_steps = steps.max(1.0);
+        self
+    }
+
+    /// Sets the gradient shade.
+    #[must_use]
+    pub fn with_gradient_shade(mut self, shade: f32) -> Self {
+        self.gradient_shade = shade.clamp(0.0, 1.0);
+        self
+    }
+}
 
 /// A local-space box around a [`Geometry`], used to pick nodes with a ray.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -204,15 +259,23 @@ impl Geometry {
     /// from the nearer state.
     #[must_use]
     pub fn lerp(&self, other: &Self, t: f32) -> Self {
+        self.lerp_with(other, t, None)
+    }
+
+    /// Like [`lerp`](Self::lerp), but with an explicit morph step count.
+    #[must_use]
+    pub fn lerp_with(&self, other: &Self, t: f32, morph_steps: Option<f32>) -> Self {
         match (self, other) {
             #[cfg(feature = "gradmesh")]
             (Self::Grad(a), Self::Grad(b)) => {
-                let steps = (t.clamp(0.0, 1.0) * MORPH_STEPS).round() / MORPH_STEPS;
+                let morph_steps = morph_steps.unwrap_or(DEFAULT_MORPH_STEPS);
+                let steps = (t.clamp(0.0, 1.0) * morph_steps).round() / morph_steps;
                 Self::Grad(a.lerp(b, steps))
             }
             #[cfg(feature = "gradmesh")]
             (Self::Sdf(a), Self::Sdf(b)) => {
-                let steps = (t.clamp(0.0, 1.0) * MORPH_STEPS).round() / MORPH_STEPS;
+                let morph_steps = morph_steps.unwrap_or(DEFAULT_MORPH_STEPS);
+                let steps = (t.clamp(0.0, 1.0) * morph_steps).round() / morph_steps;
                 Self::Sdf(a.lerp(b, steps))
             }
             _ if t < 0.5 => self.clone(),

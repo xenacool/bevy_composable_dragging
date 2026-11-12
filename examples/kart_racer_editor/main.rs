@@ -137,16 +137,8 @@ pub fn run(app: &mut App) {
 
 fn main() {
     let mut app = App::new();
-    app.add_plugins(common::default_plugins("kart racer editor"));
-    editor(&mut app)
-        .add_plugins(TourPlugin::new(tour::tour))
-        .add_plugins(
-            AutoScreenshotPlugin::new("screenshot_kart_racer_editor.gif")
-                .with_title("kart_racer_editor")
-                .with_description("Pull, widen, sculpt")
-                .animation(TOUR_FRAMES),
-        )
-        .run();
+    run(&mut app);
+    app.run();
 }
 
 #[cfg(test)]

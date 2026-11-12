@@ -56,7 +56,7 @@ Every handle accepts a `Snap` that pulls the preview onto discrete steps:
 ```rust
 use bevy_composable_dragging::ops::Snap;
 
-// No snapping — continuous values
+// No snapping -- continuous values
 Snap::NONE
 
 // Snap to multiples of 0.1

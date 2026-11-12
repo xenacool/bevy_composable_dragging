@@ -163,7 +163,7 @@ mod tests {
         assert!(frame.gap.is_infinite());
     }
 
-    /// A test that would have caught the follow.rs DragSpace propagation bug.
+    /// A test that would have caught the `follow.rs` `DragSpace` propagation bug.
     ///
     /// The bug: when `switch_to_state_and_follow` created a child `DragContext`, it didn't call
     /// `.with_space()`, so the child defaulted to the XY world plane. In 3D, where the parent
@@ -171,12 +171,16 @@ mod tests {
     /// palette items dragged on the XZ plane would move in the wrong direction because the child
     /// context resolved pointers on the XY plane instead.
     ///
-    /// This test verifies that the child context inherits the parent's DragSpace by dragging a
+    /// This test verifies that the child context inherits the parent's `DragSpace` by dragging a
     /// tool on the XZ ground plane and checking the tile follows the pointer on that same plane.
     #[test]
     fn switch_to_state_and_follow_propagates_drag_space() {
         // A scene where a tool on the XZ ground plane creates a tile that can be dragged.
         #[derive(Clone)]
+        #[expect(
+            clippy::struct_field_names,
+            reason = "the fields are the tile of a scene"
+        )]
         struct GroundScene {
             tile_created: bool,
             tile_x: f32,

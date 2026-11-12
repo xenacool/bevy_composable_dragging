@@ -46,13 +46,13 @@ This creates a circle that toggles between `x = -1` and `x = 1`. Dragging it smo
 
 The core API has three main types:
 
-1. **`View<S>`** — A flat list of `ViewNode`s describing your scene. Build it as a pure function of your state type `S`.
-2. **`ViewNode<S>`** — A single element with an id, geometry, transform, color, and optional drag spec.
-3. **`DragSpec<S>`** — A declarative description of how a node can be dragged, built with operators from the `ops` module.
+1. **`View<S>`** -- A flat list of `ViewNode`s describing your scene. Build it as a pure function of your state type `S`.
+2. **`ViewNode<S>`** -- A single element with an id, geometry, transform, color, and optional drag spec.
+3. **`DragSpec<S>`** -- A declarative description of how a node can be dragged, built with operators from the `ops` module.
 
 ## State and View Functions
 
-Your state type `S` holds everything your interface needs. The view function `fn(&S) -> View<S>` must be pure — no side effects, no external state. The engine calls it many times per frame with speculative states to compute drag previews.
+Your state type `S` holds everything your interface needs. The view function `fn(&S) -> View<S>` must be pure -- no side effects, no external state. The engine calls it many times per frame with speculative states to compute drag previews.
 
 ```rust
 #[derive(Clone)]
@@ -77,6 +77,6 @@ fn view(state: &Slider) -> View<Slider> {
 
 ## Next Steps
 
-- Learn about [Views and Nodes](./views.md) — building scenes with geometry, transforms, and hierarchy
-- Explore [Operators](./operators.md) — the declarative drag behaviors
-- Try [Drag Spaces](./spaces.md) — planes, axes, and screen-facing dragging
+- Learn about [Views and Nodes](./views.md) -- building scenes with geometry, transforms, and hierarchy
+- Explore [Operators](./operators.md) -- the declarative drag behaviors
+- Try [Drag Spaces](./spaces.md) -- planes, axes, and screen-facing dragging

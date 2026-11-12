@@ -21,20 +21,25 @@ DragSpace::plane(Vec3::ZERO, Dir3::Y)
 
 ### Axis
 
-Drag along a line. The pointer position is the nearest point on the line to the pointer ray.
+Drag along a line. The pointer position is the nearest point on the line to the pointer ray. Used for gizmo translate and scale handles, and for any control that should move in one dimension.
 
 ```rust
 // Drag along the Y axis
 DragSpace::axis(Vec3::ZERO, Dir3::Y)
+
+// Drag along a custom line through a point
+DragSpace::axis(Vec3::new(1.0, 0.0, 0.0), Dir3::X)
 ```
 
 ### Screen
 
-A plane through the dragged node that faces the camera, fixed when the drag starts.
+A plane through the dragged node that faces the camera, fixed when the drag starts. The node always moves toward the pointer from the camera's perspective, regardless of the scene's orientation. Useful for UI-like interactions in 3D scenes.
 
 ```rust
 DragSpace::screen()
 ```
+
+The screen space is recalculated only when the drag starts. If the camera moves during a drag, the plane stays fixed at its original orientation.
 
 ## Setting a Drag Space
 
@@ -66,7 +71,7 @@ Operators like `closest`, `between`, and `with_floating` work unchanged in any s
 
 ## Picking
 
-A press picks the node whose oriented bounds the pointer ray hits first (`View::hit_test`), then grabs its nearest draggable ancestor. Nodes on higher render layers are picked first — gizmo handles use layer 31 so they are always picked above scene geometry.
+A press picks the node whose oriented bounds the pointer ray hits first (`View::hit_test`), then grabs its nearest draggable ancestor. Nodes on higher render layers are picked first -- gizmo handles use layer 31 so they are always picked above scene geometry.
 
 ## Next Steps
 

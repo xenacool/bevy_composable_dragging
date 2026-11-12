@@ -1,6 +1,6 @@
 # Views and Nodes
 
-A `View<S>` is a flat list of `ViewNode`s, each identified by a `NodeId` (a string). Nothing in a view touches the ECS — it is plain data that the engine evaluates cheaply for many speculative states.
+A `View<S>` is a flat list of `ViewNode`s, each identified by a `NodeId` (a string). Nothing in a view touches the ECS -- it is plain data that the engine evaluates cheaply for many speculative states.
 
 ## Building a View
 
@@ -47,12 +47,12 @@ View::new()
 ```
 
 Transform methods:
-- `at(Vec3)` — full 3D position
-- `at_xy(Vec2)` — 2D shorthand
-- `with_rotation(Quat)` — full rotation
-- `with_rotation_xy(f32)` — Z-axis rotation in radians
-- `scaled(Vec3)` — full scale
-- `scaled_xy(Vec2)` — uniform 2D scale
+- `at(Vec3)` -- full 3D position
+- `at_xy(Vec2)` -- 2D shorthand
+- `with_rotation(Quat)` -- full rotation
+- `with_rotation_xy(f32)` -- Z-axis rotation in radians
+- `scaled(Vec3)` -- full scale
+- `scaled_xy(Vec2)` -- uniform 2D scale
 
 ## Colors and Styles
 
@@ -83,9 +83,9 @@ ViewNode::sphere("fade", 1.0)
 ```
 
 Presence options:
-- `Presence::Fade` — node fades in and out
-- `Presence::Emerge` — node emerges from the dragged node
-- `Presence::Pop` — node appears instantly
+- `Presence::Fade` -- node fades in and out
+- `Presence::Emerge` -- node emerges from the dragged node
+- `Presence::Pop` -- node appears instantly
 
 ## Rendering Modes
 
@@ -98,6 +98,22 @@ ViewNode::sphere("flat", 1.0).flat()
 ```
 
 `ViewNode::spatial()` draws a node as a `Mesh3d` for a `Camera3d`, and `ViewNode::flat()` draws it as a `Mesh2d` for a `Camera2d`, overriding the plugin default. Together with `.on_layer()`, they build a HUD from ordinary nodes over a 3D scene: give the HUD nodes `.flat().on_layer(HUD)` and add a `Camera2d` with that layer and a higher `order` next to the scene camera. Each camera only draws the nodes on its own layers, and a press from it only picks those nodes, so the HUD and the scene never take presses from each other.
+
+## Persistent ECS Components with `with_scene`
+
+A node can carry persistent ECS components that survive state changes. `with_scene` takes a closure that returns a Bevy `Scene`, applied once when the node first appears. The node keeps its entity for as long as it is in the view, so the components and observers survive every change of state.
+
+```rust
+use bevy::prelude::*;
+
+ViewNode::sphere("interactive", 1.0)
+    .with_scene(|| (
+        Name::new("My Node"),
+        SomeCustomComponent,
+    ))
+```
+
+The scene is applied only for nodes that are actually shown, never during speculative preview evaluation. The engine owns the transform, mesh, material, render layers, picking, and visibility -- the scene cannot override those. The scene must not describe children, because the engine owns the node hierarchy.
 
 ## Layers
 

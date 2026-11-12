@@ -1,6 +1,6 @@
 # Heightmaps
 
-The `heightmap` module provides an editable terrain grid that a brush raises, lowers, and cuts holes in. It needs no rendering feature — the heightmap is plain data, and a renderer builds meshes from the chunks it marks as dirty.
+The `heightmap` module provides an editable terrain grid that a brush raises, lowers, and cuts holes in. It needs no rendering feature -- the heightmap is plain data, and a renderer builds meshes from the chunks it marks as dirty.
 
 ## Creating a Heightmap
 
@@ -46,7 +46,7 @@ if let Some(hit) = terrain.hit(ray) {
 
 ## Chunks and Dirty Tracking
 
-The grid is divided into chunks. Copying a heightmap is cheap — only the edited chunks are copied. Each chunk has a key that changes when its heights or holes change:
+The grid is divided into chunks. Copying a heightmap is cheap -- only the edited chunks are copied. Each chunk has a key that changes when its heights or holes change:
 
 ```rust
 // Check every chunk for changes
@@ -68,7 +68,7 @@ Cut holes in the terrain without losing the height data underneath. Holes are a 
 // Cut a hole
 let with_hole = terrain.with_holes(Vec2::new(2.0, 2.0), 1.0, true);
 
-// Fill it back — the original height returns
+// Fill it back -- the original height returns
 let filled = with_hole.with_holes(Vec2::new(2.0, 2.0), 1.0, false);
 ```
 

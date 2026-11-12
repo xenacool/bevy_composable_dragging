@@ -76,8 +76,7 @@ ANIMATIONS_GIF = $(patsubst %,screenshot_%.gif,$(ANIMATIONS))
 # Detect whether we need a virtual display for screenshot capture
 XVFB_RUN := $(shell if [ -z "$$DISPLAY" ] && [ -z "$$WAYLAND_DISPLAY" ] && [ -z "$$WAYLAND_SOCKET" ] && command -v xvfb-run >/dev/null 2>&1; then echo "xvfb-run --auto-servernum --server-args='-screen 0 1280x720x24'"; fi)
 
-# Output directory for newly captured screenshots.  Defaults to screenshots-new/ so that
-# running `make screenshots` does not modify the git-tracked screenshots/ directory.
+# Output directory for newly captured screenshots.  Defaults to screenshots-new/.
 # Override via the environment or on the command line: make screenshots OUT_DIR=screenshots
 OUT_DIR ?= screenshots-new
 

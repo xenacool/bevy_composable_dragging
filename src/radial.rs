@@ -128,8 +128,9 @@
 //!
 //! fn view(paint: &Paint) -> View<Paint> {
 //!     let mut view = View::new();
-//!     let layout = Layout::new(paint.screen());
-//!     push_menu(&mut view, paint, &layout, &Theme::default());
+//!     let theme = Theme::default();
+//!     let layout = Layout::new(paint.screen(), theme);
+//!     push_menu(&mut view, paint, &layout, &theme);
 //!     view
 //! }
 //!
@@ -620,7 +621,8 @@ impl Label {
 /// blooms with its petal. The key of the label of a petal is its [`petal_id`], and the key of the
 /// status line is `status`.
 pub fn labels<S: RadialHost>(snapshot: &S, view: &View<S>) -> Vec<Label> {
-    let layout = Layout::new(snapshot.screen());
+    let theme = Theme::default();
+    let layout = Layout::new(snapshot.screen(), theme);
     let unit = layout.unit();
     let mut labels = Vec::new();
     if let Some(panel) = view.get("menu/status") {
@@ -956,8 +958,9 @@ mod tests {
 
     fn view(demo: &Demo) -> View<Demo> {
         let mut view = View::new();
-        let layout = Layout::new(demo.screen());
-        push_menu(&mut view, demo, &layout, &theme());
+        let t = theme();
+        let layout = Layout::new(demo.screen(), t);
+        push_menu(&mut view, demo, &layout, &t);
         view
     }
 
@@ -1052,7 +1055,7 @@ mod tests {
             for open in Page::all(&demo) {
                 let state = demo.open(open);
                 let view = view(&state);
-                let layout = Layout::new(state.screen());
+                let layout = Layout::new(state.screen(), Theme::default());
                 let center = state.pop_center(&layout);
                 let half = state.screen.hud / 2.0;
                 let mut seen: Vec<Vec2> = Vec::new();
@@ -1089,7 +1092,7 @@ mod tests {
         let closed = view(&Demo::new());
         let open = view(&Demo::new().open(Page::Root));
         let id = "menu/root/colors";
-        let hub = Demo::new().pop_center(&Layout::new(&Screen::default()));
+        let hub = Demo::new().pop_center(&Layout::new(&Screen::default(), Theme::default()));
         let middle = lerp_views(&closed, &open, 0.5);
         let scale = scale_of(&middle, id);
         assert!(scale > 0.2 && scale < 0.8, "{scale}");
@@ -1214,7 +1217,7 @@ mod tests {
         let demo = Demo::new().open(Page::Colors);
         assert_eq!(press(&demo, "menu/status", Vec3::new(3.0, 4.0, 0.0)), demo);
         let view = view(&demo);
-        let layout = Layout::new(demo.screen());
+        let layout = Layout::new(demo.screen(), Theme::default());
         let panel = view
             .get("menu/status")
             .unwrap()
@@ -1261,7 +1264,7 @@ mod tests {
     #[test]
     fn the_hub_rests_in_its_corner_and_pops_up_over_the_selection_instead() {
         let ground = Demo::new();
-        let layout = Layout::new(ground.screen());
+        let layout = Layout::new(ground.screen(), Theme::default());
         let view_on_ground = view(&ground);
         assert!(scale_of(&view_on_ground, "menu/hub") > 0.99);
         assert!(scale_of(&view_on_ground, "menu/pop") < 0.01);
@@ -1290,7 +1293,7 @@ mod tests {
     #[test]
     fn the_hub_shrinks_to_a_chip_that_hovers_above_the_element_while_the_menu_is_closed() {
         let mut selected = Demo::new().selecting();
-        let layout = Layout::new(selected.screen());
+        let layout = Layout::new(selected.screen(), Theme::default());
         let over = selected.pop_center(&layout);
         selected.chip = true;
         assert!(selected.is_chip());

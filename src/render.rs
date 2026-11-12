@@ -249,7 +249,7 @@ mod tests {
     };
 
     use super::*;
-    use crate::geometry::MeshGeometry;
+    use crate::geometry::{MeshGeometry, RenderConfig};
     use crate::sdf::PADDING;
     use crate::shapes::ShapeMeshes;
     use crate::view::View;
@@ -274,6 +274,7 @@ mod tests {
             .init_asset::<SdfMaterial2d>()
             .init_resource::<GradMeshMaterialPool>()
             .init_resource::<ShapeMeshes>()
+            .init_resource::<RenderConfig>()
             .init_resource::<NodeEntities<()>>()
             .insert_resource(rendering)
             .insert_resource(DragModel::new((), move |()| build()))
@@ -372,6 +373,7 @@ mod tests {
             .init_asset::<SdfMaterial2d>()
             .init_resource::<GradMeshMaterialPool>()
             .init_resource::<ShapeMeshes>()
+            .init_resource::<RenderConfig>()
             .init_resource::<NodeEntities<u32>>()
             .init_resource::<Pings>()
             .insert_resource(Rendering::Spatial)

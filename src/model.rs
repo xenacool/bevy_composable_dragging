@@ -10,6 +10,9 @@ use crate::space::{DragSpace, Pointer};
 use crate::transition::{DEFAULT_DURATION, Transition};
 use crate::view::{NodeId, View};
 
+/// The default maximum number of chains per drag.
+const DEFAULT_MAX_CHAINS: usize = 16;
+
 /// A pointer press that may turn into a drag.
 #[cfg_attr(not(feature = "pbr"), allow(dead_code))]
 struct PendingDrag {
@@ -20,9 +23,6 @@ struct PendingDrag {
     /// Where the press landed in the space.
     point: Vec3,
 }
-
-/// How many times one pointer position may chain into a new drag before the engine stops.
-const MAX_CHAINS: usize = 16;
 
 /// A drag in progress.
 #[cfg_attr(not(feature = "pbr"), allow(dead_code))]
@@ -55,6 +55,8 @@ pub struct DragModel<S: Send + Sync + 'static> {
     session: Option<Session<S>>,
     transition: Option<Transition<S>>,
     transition_duration: f32,
+    /// How many times one pointer position may chain into a new drag before the engine stops.
+    max_chains: usize,
 }
 
 impl<S: Clone + Send + Sync + 'static> DragModel<S> {
@@ -73,7 +75,14 @@ impl<S: Clone + Send + Sync + 'static> DragModel<S> {
             session: None,
             transition: None,
             transition_duration: DEFAULT_DURATION,
+            max_chains: DEFAULT_MAX_CHAINS,
         }
+    }
+
+    /// Sets how many times one pointer position may chain into a new drag before the engine stops.
+    /// The default is 16, which covers deeply nested chaining without looping indefinitely.
+    pub fn set_max_chains(&mut self, max: usize) {
+        self.max_chains = max.max(1);
     }
 
     /// The current state. While a drag is in progress this is the state the drag started from.
@@ -272,7 +281,14 @@ impl<S: Clone + Send + Sync + 'static> DragModel<S> {
             frame,
             followed,
             transition: chain_transition,
-        } = follow_chains(&self.view_fn, session, &mut self.state, pointer, first);
+        } = follow_chains(
+            &self.view_fn,
+            session,
+            &mut self.state,
+            pointer,
+            first,
+            self.max_chains,
+        );
         session.drop_state = frame.drop_state;
         session.drop_transition = frame.drop_transition;
         let switched = followed || session.branch.is_some_and(|branch| branch != frame.branch);
@@ -344,10 +360,11 @@ fn follow_chains<S: Clone + Send + Sync + 'static>(
     state: &mut S,
     pointer: Pointer,
     mut frame: Frame<S>,
+    max_chains: usize,
 ) -> Chained<S> {
     let mut followed = false;
     let mut transition = None;
-    for _ in 0..MAX_CHAINS {
+    for _ in 0..max_chains {
         let Some(chain) = frame.chain.take() else {
             break;
         };

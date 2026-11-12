@@ -10,7 +10,7 @@ Instead of writing hand-crafted drop zones, hit tests, and drag state machines, 
 
 ## Key Concepts
 
-- **Views**: Plain-data descriptions of scenes — flat lists of nodes with geometry, transforms, colors, and optional drag specs
+- **Views**: Plain-data descriptions of scenes -- flat lists of nodes with geometry, transforms, colors, and optional drag specs
 - **Operators**: Declarative drag behaviors (`between`, `closest`, `vary`, etc.) that compile into per-frame behavior
 - **Drag Spaces**: Planes, axes, and screen-facing planes that resolve pointer rays to world points
 - **Blending**: Smooth interpolation between views, with presence animations for emerging and disappearing nodes
@@ -22,7 +22,7 @@ Instead of writing hand-crafted drop zones, hit tests, and drag state machines, 
 Bevy Composable Dragging follows these principles:
 
 1. **Declarative**: Describe what a drag does, not how it works frame by frame
-2. **Composable**: Specs are plain data that combine freely — no state machines or enums
+2. **Composable**: Specs are plain data that combine freely -- no state machines or enums
 3. **Pure views**: The view function is pure; state holds everything, including HUD screen size
 4. **Bevy-native**: Outputs standard `Mesh`, `Transform`, and `StandardMaterial` types
 5. **Feature-gated**: The core library needs only `bevy_color`; PBR and gradient features are optional

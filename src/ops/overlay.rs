@@ -4,12 +4,43 @@ use crate::behavior::Frame;
 use crate::spec::DragSpec;
 use crate::view::{NodeId, ViewNode};
 
-/// How far overlay nodes are lifted so they are drawn above everything, including a floating
-/// node (see [`with_floating`](DragSpec::with_floating)).
-const OVERLAY_LIFT: f32 = 1.0;
+/// How far overlay nodes are lifted by default so they are drawn above everything, including a
+/// floating node (see [`with_floating`](DragSpec::with_floating)).
+const DEFAULT_LIFT: f32 = 1.0;
 
 /// The prefix that keeps the ids of overlay nodes apart from the ids of the preview.
 const OVERLAY_PREFIX: &str = "overlay-";
+
+/// Options of [`with_overlay_options`](DragSpec::with_overlay_options). The defaults match
+/// [`with_overlay`](DragSpec::with_overlay).
+#[derive(Clone, Copy, Debug, PartialEq)]
+#[non_exhaustive]
+pub struct OverlayOptions {
+    /// How far overlay nodes are lifted along the Z axis of their parent, so they are drawn above
+    /// the preview, including a floating node. Zero leaves them where the overlay put them.
+    pub lift: f32,
+}
+
+impl Default for OverlayOptions {
+    fn default() -> Self {
+        Self { lift: DEFAULT_LIFT }
+    }
+}
+
+impl OverlayOptions {
+    /// The defaults: a lift of one unit.
+    #[must_use]
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Sets [`lift`](Self::lift).
+    #[must_use]
+    pub fn with_lift(mut self, lift: f32) -> Self {
+        self.lift = lift;
+        self
+    }
+}
 
 impl<S: Clone + Send + Sync + 'static> DragSpec<S> {
     /// Draws extra nodes on top of the preview while this spec is active, for example marks at
@@ -29,6 +60,16 @@ impl<S: Clone + Send + Sync + 'static> DragSpec<S> {
         self,
         overlay: impl Fn(&Frame<S>) -> Vec<ViewNode<S>> + Clone + Send + Sync + 'static,
     ) -> Self {
+        self.with_overlay_options(overlay, OverlayOptions::new())
+    }
+
+    /// Like [`with_overlay`](Self::with_overlay), with the lift of [`OverlayOptions`].
+    #[must_use]
+    pub fn with_overlay_options(
+        self,
+        overlay: impl Fn(&Frame<S>) -> Vec<ViewNode<S>> + Clone + Send + Sync + 'static,
+        options: OverlayOptions,
+    ) -> Self {
         Self::new(move |context| {
             let mut inner = self.compile(context);
             let overlay = overlay.clone();
@@ -38,7 +79,7 @@ impl<S: Clone + Send + Sync + 'static> DragSpec<S> {
                 let ids: Vec<NodeId> = nodes.iter().map(|node| node.id.clone()).collect();
                 for mut node in nodes {
                     node.drag = None;
-                    node.transform.translation.z += OVERLAY_LIFT;
+                    node.transform.translation.z += options.lift;
                     node.id = prefixed(&node.id);
                     node.parent = node.parent.map(|parent| {
                         if ids.contains(&parent) {
@@ -82,6 +123,17 @@ mod tests {
         assert!(mark.drag.is_none());
         assert!(mark.transform.translation.z > 0.5);
         assert_eq!(frame.view.len(), 4);
+    }
+
+    #[test]
+    fn the_lift_can_be_changed() {
+        let spec = state(Slot(1)).with_overlay_options(
+            |_| vec![ViewNode::circle("mark", 2.0)],
+            super::OverlayOptions::new().with_lift(4.0),
+        );
+        let frame = spec.compile(&context())(Pointer::from(Vec2::ZERO));
+        let mark = frame.view.get("overlay-mark").unwrap();
+        assert!((mark.transform.translation.z - 4.0).abs() < 1e-6);
     }
 
     #[test]

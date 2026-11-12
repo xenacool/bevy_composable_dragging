@@ -106,25 +106,7 @@ pub fn run(app: &mut App) {
 }
 
 fn main() {
-    let start = Clock { hours: 10.0 };
-    let from = hour_angle(start.hours);
-    App::new()
-        .add_plugins(common::default_plugins("clock"))
-        .add_plugins(DraggablePlugin::new(start, view))
-        .add_plugins(ScriptedDragPlugin::arc(
-            Vec2::ZERO,
-            HOUR_LENGTH,
-            from,
-            from - TAU * 0.2,
-        ))
-        .add_plugins(
-            AutoScreenshotPlugin::new("screenshot_clock.gif")
-                .with_title("clock")
-                .with_description("vary one number")
-                .animation(600),
-        )
-        .add_systems(Startup, |mut commands: Commands| {
-            common::spawn_cameras(&mut commands, 6.0);
-        })
-        .run();
+    let mut app = App::new();
+    run(&mut app);
+    app.run();
 }

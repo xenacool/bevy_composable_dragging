@@ -15,7 +15,7 @@
 //! Run with `cargo run --example lists_in_lists --features pbr`.
 
 use bevy::prelude::*;
-use bevy_composable_dragging::ops::{closest, state, substate, vary, Lens};
+use bevy_composable_dragging::ops::{Lens, closest, state, substate, vary};
 use bevy_composable_dragging::{DragSpec, DraggablePlugin, View, ViewNode, param};
 
 mod common;
@@ -405,23 +405,9 @@ pub fn run(app: &mut App) {
 }
 
 fn main() {
-    App::new()
-        .add_plugins(common::default_plugins("lists_in_lists"))
-        .add_plugins(DraggablePlugin::new(initial_canvas(), view))
-        .add_plugins(ScriptedDragPlugin::straight(
-            Vec2::new(-4.2, 1.5),
-            Vec2::new(-1.7, 1.45),
-        ))
-        .add_plugins(
-            AutoScreenshotPlugin::new("screenshot_lists_in_lists.gif")
-                .with_title("lists_in_lists")
-                .with_description("closest + when_far + overlay, rows nested to any depth")
-                .animation(600),
-        )
-        .add_systems(Startup, |mut commands: Commands| {
-            common::spawn_cameras(&mut commands, 7.0);
-        })
-        .run();
+    let mut app = App::new();
+    run(&mut app);
+    app.run();
 }
 
 #[cfg(test)]

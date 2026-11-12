@@ -3,9 +3,9 @@
 use crate::owned::owned_fn;
 use crate::spec::DragSpec;
 
-/// How far a floating node is lifted along the normal of the drag space so it is drawn above the
-/// others.
-const FLOAT_LIFT: f32 = 0.5;
+/// How far a floating node is lifted by default, along the normal of the drag space, so it is
+/// drawn above the others.
+const DEFAULT_LIFT: f32 = 0.5;
 
 owned_fn! {
     /// Maps the distance between the pointer and the node's drop position to the distance the
@@ -15,9 +15,12 @@ owned_fn! {
 
 /// Options of [`with_floating_options`](DragSpec::with_floating_options). The defaults match
 /// [`with_floating`](DragSpec::with_floating).
-#[derive(Clone, Default)]
+#[derive(Clone)]
 #[non_exhaustive]
 pub struct FloatingOptions {
+    /// How far the floating node is lifted along the normal of the drag space, so it is drawn
+    /// above its neighbors. Zero keeps it in the plane of the drag.
+    pub lift: f32,
     /// When set, a copy of the dragged node stays where dropping would put it, drawn with its
     /// alpha multiplied by this opacity. The copy has the id `ghost-<id>` and is not draggable.
     /// Nodes drawn with a gradient style are not faded, only nodes drawn from their color.
@@ -25,11 +28,28 @@ pub struct FloatingOptions {
     tether: Option<Tether>,
 }
 
+impl Default for FloatingOptions {
+    fn default() -> Self {
+        Self {
+            lift: DEFAULT_LIFT,
+            ghost: None,
+            tether: None,
+        }
+    }
+}
+
 impl FloatingOptions {
-    /// The defaults: no ghost and no tether.
+    /// The defaults: a lift of half a unit, no ghost and no tether.
     #[must_use]
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Sets [`lift`](Self::lift).
+    #[must_use]
+    pub fn with_lift(mut self, lift: f32) -> Self {
+        self.lift = lift;
+        self
     }
 
     /// Leaves a ghost of the dragged node at its drop position, with the given opacity.
@@ -101,7 +121,7 @@ impl<S: Clone + Send + Sync + 'static> DragSpec<S> {
                 if let (Some(home), Some(mut world)) = (home, frame.view.world_transform(&dragged))
                 {
                     let depth = home - space.project_point(home);
-                    world.translation = target + depth + *space.normal() * FLOAT_LIFT;
+                    world.translation = target + depth + *space.normal() * options.lift;
                     frame.view.set_world_transform(&dragged, world);
                 }
                 frame
@@ -143,6 +163,14 @@ mod tests {
         let frame = nearest_slots().with_floating().compile(&ground)(pointer);
         let item = frame.view.world_position("item").unwrap();
         assert!(item.distance(Vec3::new(7.0, 0.5, 3.0)) < 1e-4, "{item}");
+    }
+
+    #[test]
+    fn the_lift_can_be_changed() {
+        let spec = nearest_slots().with_floating_options(FloatingOptions::new().with_lift(3.0));
+        let frame = spec.compile(&context())(Pointer::from(Vec2::new(7.0, 3.0)));
+        let item = frame.view.world_transform("item").unwrap().translation;
+        assert!((item.z - 3.0).abs() < 1e-4);
     }
 
     #[test]

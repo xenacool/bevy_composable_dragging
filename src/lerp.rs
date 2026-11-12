@@ -35,8 +35,8 @@ fn blend_styles<S>(a: &ViewNode<S>, b: &ViewNode<S>, t: f32) -> Option<Style> {
     match (&a.style, &b.style) {
         (None, None) => None,
         (Some(style_a), Some(style_b)) => Some(style_a.blend(style_b, t)),
-        (Some(style_a), None) => Some(style_a.blend(&gradient_style(b.color), t)),
-        (None, Some(style_b)) => Some(gradient_style(a.color).blend(style_b, t)),
+        (Some(style_a), None) => Some(style_a.blend(&gradient_style(b.color, 0.35), t)),
+        (None, Some(style_b)) => Some(gradient_style(a.color, 0.35).blend(style_b, t)),
     }
 }
 
