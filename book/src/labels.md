@@ -28,7 +28,7 @@ The second argument to `LabelsResource::new` is the render layer for the labels.
 
 ## How it works
 
-Every frame the plugin projects each label's parent node through the scene camera to a screen pixel and moves the text there. The label camera uses one world unit per logical pixel with the origin at the center of the window, so text has the exact pixel size requested regardless of window size or camera scaling mode.
+Whenever the state or the scene camera changes, the plugin projects each label's parent node through the scene camera to a screen pixel and moves the text there. A frame in which neither changed does no work, so a scene can hold tens of thousands of labels. For the same reason the labels function runs only when the state changes, and must depend on its two arguments alone. The label camera uses one world unit per logical pixel with the origin at the center of the window, so text has the exact pixel size requested regardless of window size or camera scaling mode.
 
 This projection works with flat, isometric, and perspective cameras. A label whose node is behind the camera or outside its depth range is automatically hidden.
 

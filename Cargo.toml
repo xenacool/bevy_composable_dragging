@@ -1,6 +1,6 @@
 [package]
 name = "bevy_composable_dragging"
-version = "0.3.10" # Must always aligned with bevy_gradmesh. Don't forget to update README.md and book/
+version = "0.3.11"
 authors = ["Jessica Collins (https://github.com/xenacool)"]
 edition = "2024"
 rust-version = "1.87"

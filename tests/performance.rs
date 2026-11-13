@@ -6,7 +6,8 @@
 //! The limits are generous, because they must hold on a busy machine and in a debug build, but
 //! they are far below what a regression such as a mesh rebuilt on every frame would cost.
 //! Run `cargo test --release --features shapes-3d --test performance -- --nocapture` for the
-//! numbers.
+//! numbers. The labels of a crowded interface add little to a frame while their nodes move, and
+//! nothing while nothing moves.
 
 use std::time::{Duration, Instant};
 
@@ -15,6 +16,7 @@ use bevy::math::{Vec2, Vec3};
 use bevy::prelude::*;
 use bevy::transform::TransformPlugin;
 use bevy::window::WindowEvent;
+use bevy_composable_dragging::label::{Label, LabelMarker, LabelPlugin, LabelsResource};
 use bevy_composable_dragging::ops::{closest, state};
 use bevy_composable_dragging::{
     DragContext, DragModel, DragSpec, DraggablePlugin, Pointer, View, ViewNode,
@@ -226,5 +228,94 @@ fn scenes_are_built_when_a_node_appears_and_not_when_the_interface_moves() {
     assert!(
         elapsed / u32::try_from(FRAMES).unwrap_or(u32::MAX) <= budget(Duration::from_millis(16)),
         "scenes make a frame slower than 16 ms"
+    );
+}
+
+/// Labels that follow the nodes of the interface.
+const LABELS: usize = 10_000;
+
+fn labelled_view(shift: &Shift) -> View<Shift> {
+    let mut view = View::new();
+    for index in 0..LABELS {
+        view.push(ViewNode::sphere(format!("n{index}"), 0.2).at_xy(Vec2::new(
+            (index % 100 + shift.0) as f32 * 0.1,
+            (index / 100) as f32 * 0.1,
+        )));
+    }
+    view
+}
+
+fn labels(_state: &Shift, view: &View<Shift>) -> Vec<Label> {
+    view.nodes()
+        .iter()
+        .map(|node| Label::new(format!("label-{}", node.id), "text", node.id.to_string()))
+        .collect()
+}
+
+#[test]
+fn many_labels_keep_the_frame_rate_while_idle_and_while_they_move() {
+    const FRAMES: usize = 20;
+    let mut app = App::new();
+    app.add_plugins((
+        MinimalPlugins,
+        AssetPlugin::default(),
+        TransformPlugin,
+        WindowPlugin::default(),
+        bevy::input::InputPlugin,
+        DraggablePlugin::new(Shift(0), labelled_view).with_transition_duration(0.0),
+    ))
+    .add_message::<WindowEvent>()
+    .insert_resource(LabelsResource::<Shift>::new(labels, 3))
+    .add_plugins(LabelPlugin::<Shift>::default());
+    app.add_systems(Startup, |mut commands: Commands| {
+        commands.spawn((
+            Camera3d::default(),
+            Projection::Orthographic(OrthographicProjection::default_3d()),
+            Transform::from_xyz(5.0, 5.0, 10.0),
+        ));
+    });
+    app.finish();
+    app.cleanup();
+    let start = Instant::now();
+    app.update();
+    app.update();
+    let appearing = start.elapsed();
+    let count = app
+        .world_mut()
+        .query::<&LabelMarker>()
+        .iter(app.world())
+        .count();
+    assert_eq!(count, LABELS, "every label has an entity");
+
+    let start = Instant::now();
+    for _ in 0..FRAMES {
+        app.update();
+    }
+    let idle = start.elapsed();
+
+    let start = Instant::now();
+    for frame in 0..FRAMES {
+        app.world_mut()
+            .resource_mut::<DragModel<Shift>>()
+            .set_state(Shift(frame % BRANCHES));
+        app.update();
+    }
+    let moving = start.elapsed();
+    println!(
+        "{LABELS} labels appear in {:.0} us; {:.0} us per idle frame, {:.0} us per frame while they move",
+        appearing.as_secs_f64() * 1e6,
+        micros(idle, FRAMES),
+        micros(moving, FRAMES),
+    );
+    let frames = u32::try_from(FRAMES).unwrap_or(u32::MAX);
+    assert!(
+        idle / frames <= budget(Duration::from_millis(4)),
+        "idle labels make a frame slower than 4 ms: {:.0} us",
+        micros(idle, FRAMES)
+    );
+    assert!(
+        moving / frames <= budget(Duration::from_millis(16)),
+        "moving labels make a frame slower than 16 ms: {:.0} us",
+        micros(moving, FRAMES)
     );
 }

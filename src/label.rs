@@ -9,9 +9,9 @@
 //! text to show, and the parent node id it follows. The plugin spawns one `Text2d` entity per
 //! label, removes it when the label is gone, and updates its text when the state changes.
 //!
-//! Labels are drawn in screen space. Every frame the plugin projects the parent node through
-//! the scene camera and places the text at that pixel, so the text always has the size in
-//! pixels that the label asks for, whatever the window size or the scaling mode of the camera.
+//! Labels are drawn in screen space. The plugin projects the parent node through the scene
+//! camera and places the text at that pixel, so the text always has the size in pixels that the
+//! label asks for, whatever the window size or the scaling mode of the camera.
 //! Because the projection comes from the camera itself, flat, isometric and perspective scenes
 //! all work. A label whose node is behind the camera or outside its depth range is hidden.
 //!
@@ -19,6 +19,12 @@
 //! layer nodes are drawn on by default. The labels are drawn by a camera of their own on the
 //! layer given to [`LabelsResource`], which no scene camera may render, or the text would be
 //! drawn twice.
+//!
+//! The labels function runs when the [`DragModel`] changes, not every frame, and the plugin
+//! touches the text entities only when the state or the scene camera changed, so a frame in
+//! which nothing moved costs no more with ten thousand labels than with one. The function must
+//! therefore depend on its two arguments alone. When the state changes, the plugin finds the
+//! world position of every label with one pass over the nodes of the view.
 //!
 //! ```no_run
 //! use bevy::prelude::*;
@@ -57,7 +63,7 @@
 //!     .run();
 //! ```
 
-use std::collections::HashSet;
+use std::collections::HashMap;
 use std::marker::PhantomData;
 
 use bevy::camera::visibility::RenderLayers;
@@ -206,7 +212,8 @@ type SceneCameras<'w, 's> = Query<
 /// The labels function stored as a resource by [`LabelPlugin`].
 ///
 /// Insert this resource with your labels function, then add [`LabelPlugin`] to run the sync
-/// system. The plugin reads this resource each frame to determine which labels to show.
+/// system. The plugin calls the function when the [`DragModel`] changes or this resource does,
+/// so the function must depend on its two arguments alone.
 #[derive(Resource)]
 pub struct LabelsResource<S> {
     /// The function that returns the labels for the current state and view.
@@ -255,9 +262,10 @@ impl<S> LabelsResource<S> {
 }
 
 /// What it takes to turn a world position into a pixel of the scene camera.
+#[derive(Clone, Copy, Debug, PartialEq)]
 struct SceneView {
-    projection: Projection,
-    transform: GlobalTransform,
+    /// The transform from world space to the clip space of the camera.
+    clip_from_world: Mat4,
     /// The size of the viewport in logical pixels.
     viewport: Vec2,
 }
@@ -266,10 +274,7 @@ impl SceneView {
     /// The pixel of `world` relative to the center of the viewport, with y pointing up, or
     /// `None` when the point is behind the camera or outside its depth range.
     fn project(&self, world: Vec3) -> Option<Vec2> {
-        let mut projection = self.projection.clone();
-        projection.update(self.viewport.x, self.viewport.y);
-        let in_view = self.transform.affine().inverse().transform_point3(world);
-        let ndc = projection.get_clip_from_view().project_point3(in_view);
+        let ndc = self.clip_from_world.project_point3(world);
         (ndc.is_finite() && (0.0..=1.0).contains(&ndc.z))
             .then(|| ndc.truncate() * self.viewport / 2.0)
     }
@@ -290,80 +295,146 @@ fn find_scene_view(
     let viewport = camera
         .logical_viewport_size()
         .or_else(|| windows.single().ok().map(Window::size))?;
+    let mut projection = projection.clone();
+    projection.update(viewport.x, viewport.y);
     Some(SceneView {
-        projection: projection.clone(),
-        transform: *transform,
+        clip_from_world: projection.get_clip_from_view() * Mat4::from(transform.affine().inverse()),
         viewport,
     })
 }
 
 /// The world position a label is attached to: its parent node when that exists in the view,
 /// otherwise its fixed position.
-fn label_world_position<S>(view: &View<S>, label: &Label) -> Option<Vec3> {
+fn label_world_position(worlds: &HashMap<&str, Transform>, label: &Label) -> Option<Vec3> {
     label
         .parent
-        .as_ref()
-        .and_then(|parent| view.world_position(parent))
+        .as_deref()
+        .and_then(|parent| worlds.get(parent))
+        .map(|world| world.translation)
         .or(label.at)
 }
 
 /// The pixel a label is drawn at, or `None` when it cannot be seen.
-fn label_pixel<S>(view: &View<S>, label: &Label, scene: Option<&SceneView>) -> Option<Vec2> {
-    let world = label_world_position(view, label)?;
-    Some(scene?.project(world)? + label.offset)
+fn label_pixel(world: Option<Vec3>, label: &Label, scene: Option<&SceneView>) -> Option<Vec2> {
+    Some(scene?.project(world?)? + label.offset)
+}
+
+/// What the sync system remembers from one frame to the next, so that a frame in which neither
+/// the state nor the camera changed costs nothing, however many labels there are.
+#[derive(Default)]
+struct LabelCache {
+    /// The labels the user's function returned for the current state and view.
+    wanted: Vec<Label>,
+    /// The position in `wanted` of the label with each key. The last label wins a shared key.
+    index: HashMap<String, usize>,
+    /// The world position every wanted label is attached to.
+    worlds: Vec<Option<Vec3>>,
+    /// The camera the labels were last placed with.
+    scene: Option<SceneView>,
+}
+
+impl LabelCache {
+    /// Takes the labels for the current view and finds the world position of each one, with one
+    /// pass over the nodes of the view instead of one per label.
+    fn rebuild<S>(&mut self, wanted: Vec<Label>, view: &View<S>) {
+        let nodes = view.world_transforms();
+        self.worlds = wanted
+            .iter()
+            .map(|label| label_world_position(&nodes, label))
+            .collect();
+        self.index = wanted
+            .iter()
+            .enumerate()
+            .map(|(position, label)| (label.key.clone(), position))
+            .collect();
+        self.wanted = wanted;
+    }
+}
+
+/// Writes `value` into `slot` only when it differs, so that Bevy's change detection does not see
+/// a change, and does not lay the text out again, for a label that did not move.
+fn assign<T: PartialEq>(mut slot: Mut<T>, value: T) {
+    if *slot != value {
+        *slot = value;
+    }
 }
 
 /// Keeps one `Text2d` entity for every label returned by the user's function, following the
 /// parent nodes as they move, and removes labels that are gone.
-fn sync_labels<S: Clone + Send + Sync + 'static>(
-    layer: usize,
-    depth: f32,
-    wanted: &[Label],
-    view: &View<S>,
-    scene: Option<&SceneView>,
+fn sync_labels_system<S: Clone + Send + Sync + 'static>(
+    labels_res: Res<LabelsResource<S>>,
     mut commands: Commands,
+    model: Res<DragModel<S>>,
     mut existing: LabelQuery,
+    cameras: SceneCameras,
+    windows: Query<&Window, With<PrimaryWindow>>,
+    mut cache: Local<LabelCache>,
 ) {
-    let mut seen = HashSet::new();
+    let scene = find_scene_view(&cameras, &windows);
+    let rebuilt = model.is_changed() || labels_res.is_changed();
+    if !rebuilt && scene == cache.scene && existing.iter().len() == cache.index.len() {
+        return;
+    }
+    if rebuilt {
+        cache.rebuild(
+            (labels_res.labels_fn)(model.state(), model.view()),
+            model.view(),
+        );
+    }
+    cache.scene = scene;
 
-    for (
-        entity,
-        marker,
-        mut text,
-        mut transform,
-        mut visibility,
-        mut color,
-        mut font,
-        mut render_layers,
-    ) in &mut existing
+    let (layer, depth) = (labels_res.layer, labels_res.depth);
+    let mut seen = vec![false; cache.wanted.len()];
+
+    for (entity, marker, mut text, mut transform, mut visibility, color, font, render_layers) in
+        &mut existing
     {
-        let Some(label) = wanted.iter().find(|l| l.key == marker.0) else {
+        let Some(&position) = cache.index.get(&marker.0) else {
             commands.entity(entity).despawn();
             continue;
         };
-        seen.insert(label.key.clone());
+        if std::mem::replace(&mut seen[position], true) {
+            commands.entity(entity).despawn();
+            continue;
+        }
+        let label = &cache.wanted[position];
 
         if text.0 != label.text {
             text.0.clone_from(&label.text);
         }
-
-        match label_pixel(view, label, scene) {
+        match label_pixel(cache.worlds[position], label, scene.as_ref()) {
             Some(pixel) => {
-                transform.translation = pixel.extend(depth);
-                *visibility = Visibility::Inherited;
+                let translation = pixel.extend(depth);
+                if transform.translation != translation {
+                    transform.translation = translation;
+                }
+                if *visibility != Visibility::Inherited {
+                    *visibility = Visibility::Inherited;
+                }
             }
-            None => *visibility = Visibility::Hidden,
+            None => {
+                if *visibility != Visibility::Hidden {
+                    *visibility = Visibility::Hidden;
+                }
+            }
         }
-        color.0 = label.color;
-        font.font_size = FontSize::Px(label.font_size);
-        *render_layers = RenderLayers::layer(label.layer.max(layer));
+        assign(color.map_unchanged(|color| &mut color.0), label.color);
+        assign(
+            font.map_unchanged(|font| &mut font.font_size),
+            FontSize::Px(label.font_size),
+        );
+        assign(render_layers, RenderLayers::layer(label.layer.max(layer)));
     }
 
-    for label in wanted.iter().filter(|l| !seen.contains(&l.key)) {
-        let (translation, visibility) = match label_pixel(view, label, scene) {
-            Some(pixel) => (pixel.extend(depth), Visibility::Inherited),
-            None => (Vec3::ZERO, Visibility::Hidden),
-        };
+    for (position, label) in cache.wanted.iter().enumerate() {
+        if seen[position] || cache.index[&label.key] != position {
+            continue;
+        }
+        let (translation, visibility) =
+            match label_pixel(cache.worlds[position], label, scene.as_ref()) {
+                Some(pixel) => (pixel.extend(depth), Visibility::Inherited),
+                None => (Vec3::ZERO, Visibility::Hidden),
+            };
         commands.spawn((
             LabelMarker(label.key.clone()),
             Text2d::new(label.text.clone()),
@@ -384,8 +455,9 @@ fn sync_labels<S: Clone + Send + Sync + 'static>(
 /// Draws text labels for a view of state `S` as `Text2d` entities.
 ///
 /// The plugin spawns a `Camera2d` that renders only the labels' layer, with one world unit per
-/// logical pixel and the origin at the center of the window. Each frame it projects every
-/// label's node through the scene camera to a pixel and moves the text there, so the text has
+/// logical pixel and the origin at the center of the window. It projects every label's node
+/// through the scene camera to a pixel whenever the state or that camera changes, and moves the
+/// text there, so the text has
 /// the pixel size it asks for in flat, isometric and perspective scenes alike. Labels follow
 /// their parent nodes, update their text when the state changes, and are removed when no
 /// longer returned by the labels function.
@@ -425,27 +497,6 @@ fn spawn_label_camera<S: Send + Sync + 'static>(
             ..default()
         },
     ));
-}
-
-fn sync_labels_system<S: Clone + Send + Sync + 'static>(
-    labels_res: Res<LabelsResource<S>>,
-    commands: Commands,
-    model: Res<DragModel<S>>,
-    existing: LabelQuery,
-    cameras: SceneCameras,
-    windows: Query<&Window, With<PrimaryWindow>>,
-) {
-    let wanted = (labels_res.labels_fn)(model.state(), model.view());
-    let scene = find_scene_view(&cameras, &windows);
-    sync_labels(
-        labels_res.layer,
-        labels_res.depth,
-        &wanted,
-        model.view(),
-        scene.as_ref(),
-        commands,
-        existing,
-    );
 }
 
 /// A convenience function that builds labels from a view's nodes, using a naming function.
@@ -514,7 +565,7 @@ mod tests {
             items: vec![(0, "A".into()), (1, "B".into())],
         });
         let label = Label::new("label-0", "A", "node-0");
-        let pos = label_world_position(&view, &label).unwrap();
+        let pos = label_world_position(&view.world_transforms(), &label).unwrap();
         assert!(pos.distance(view.world_position("node-0").unwrap()) < 1e-3);
     }
 
@@ -523,7 +574,7 @@ mod tests {
         let at = Vec3::new(10.0, 20.0, 30.0);
         let label = Label::at("fixed", "Fixed", at);
         let view: View<Demo> = View::new();
-        let pos = label_world_position(&view, &label).unwrap();
+        let pos = label_world_position(&view.world_transforms(), &label).unwrap();
         assert!(pos.distance(at) < 1e-3);
     }
 
@@ -615,7 +666,7 @@ mod tests {
         let view: View<Demo> = View::new();
         let mut label = Label::at("orphan", "Orphan", Vec3::new(5.0, 10.0, 0.0));
         label.parent = Some("missing".into());
-        let pos = label_world_position(&view, &label).unwrap();
+        let pos = label_world_position(&view.world_transforms(), &label).unwrap();
         assert!(pos.distance(Vec3::new(5.0, 10.0, 0.0)) < 1e-3);
     }
 
@@ -624,7 +675,7 @@ mod tests {
         let view: View<Demo> = View::new();
         let mut label = Label::new("orphan", "Orphan", "missing");
         label.at = None;
-        assert_eq!(label_world_position(&view, &label), None);
+        assert_eq!(label_world_position(&view.world_transforms(), &label), None);
     }
 
     /// A node at x = id - 4, y = 2 on the plane z = 0.

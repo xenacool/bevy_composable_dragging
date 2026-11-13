@@ -569,7 +569,16 @@ impl<S> View<S> {
     /// A parent id that is not part of the view is treated as the world.
     #[must_use]
     pub fn world_transform(&self, id: &str) -> Option<Transform> {
-        self.world_transforms().get(id).copied()
+        let mut node = self.get(id)?;
+        let mut world = node.transform;
+        for _ in 0..self.nodes.len() {
+            let Some(parent) = node.parent.as_deref().and_then(|parent| self.get(parent)) else {
+                break;
+            };
+            world = parent.transform.mul_transform(world);
+            node = parent;
+        }
+        Some(world)
     }
 
     /// The transform of the node with the given id, relative to its parent.
